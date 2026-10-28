@@ -1,0 +1,29 @@
+# Timescale for PDC (server / EC2)
+#
+# Usage:
+# Set the DB password in the environment, then: docker compose up -d
+# Local laptop: use docker-compose.local.yaml instead.
+#
+# App DSN on this host should target 127.0.0.1:5432.
+
+services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pdc
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?missing}
+      POSTGRES_DB: pdc
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - timescaledb-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pdc -d pdc"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  timescaledb-data:

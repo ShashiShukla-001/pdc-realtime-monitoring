@@ -1,0 +1,92 @@
+import type { ConnectivityRow } from '../../types/dashboard'
+import { ageText, formatByteSize, round } from '../../utils/format'
+
+type Props = {
+  rows: ConnectivityRow[]
+  nowUtc?: string
+  onRowClick: (name: string) => void
+}
+
+function statusChip(row: ConnectivityRow) {
+  if (row.statusLabel === 'Offline') return 'bad'
+  if (row.statusLabel === 'Degraded') return 'warn'
+  return 'ok'
+}
+
+export function ConnectivityMatrix({ rows, nowUtc, onRowClick }: Props) {
+  return (
+    <section className="panel table-panel">
+      <div className="panel-head">
+        <div>
+          <h3>Per-PMU Connectivity Matrix</h3>
+          <p className="panel-sub">
+            Sorted worst-first · click a row to inspect
+            {rows.length ? ` · ${rows.length} PMUs` : ''}
+            {' · '}TCP unread = kernel bytes waiting to be Read
+            {' · '}Last frame = age at snapshot (not browser clock)
+          </p>
+        </div>
+      </div>
+      <div className="table-wrap scrollx rows-5">
+        <table>
+          <thead>
+            <tr>
+              <th>PMU</th>
+              <th>Region</th>
+              <th>Link</th>
+              <th>Latency (ms)</th>
+              <th>Jitter (ms)</th>
+              <th>TCP unread</th>
+              <th>Pkt Loss %</th>
+              <th>Avail %</th>
+              <th>Last Frame</th>
+              <th>Status</th>
+              <th>Recommendation</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={11} className="device-empty">
+                  No connectivity rows yet.
+                </td>
+              </tr>
+            ) : (
+              rows.map((row) => (
+                <tr key={row.name} className="row-click" onClick={() => onRowClick(row.name)}>
+                  <td><strong>{row.name}</strong></td>
+                  <td>{row.meta.region}</td>
+                  <td>{row.link}</td>
+                  <td>
+                    {row.connected && Number.isFinite(row.latency) && row.latency < 900
+                      ? round(row.latency, 2)
+                      : '—'}
+                  </td>
+                  <td>{row.connected ? round(row.jitter, 1) : '—'}</td>
+                  <td
+                    title={
+                      row.tcpUnreadBytes != null && row.tcpRecvBufMax
+                        ? `Kernel TCP Rx queue · max ${formatByteSize(row.tcpRecvBufMax)}`
+                        : 'TCP DATA only (UDP streams show —)'
+                    }
+                  >
+                    {row.connected ? formatByteSize(row.tcpUnreadBytes) : '—'}
+                  </td>
+                  <td>{row.connected ? round(row.loss, 2) : '—'}</td>
+                  <td>{row.connected ? round(row.avail, 1) : '0.0'}</td>
+                  <td>
+                    {row.connected ? ageText(row.lastFrameTime, nowUtc) : '—'}
+                  </td>
+                  <td>
+                    <span className={`status-chip ${statusChip(row)}`}>{row.statusLabel}</span>
+                  </td>
+                  <td className="conn-rec-cell">{row.tableRecommendation}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )
+}
