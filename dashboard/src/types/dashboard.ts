@@ -130,7 +130,6 @@ export type LivePMUState = {
   /** Most recent Validate() reject reason. */
   lastQualityReject?: string
   sinkErrors: number
-  spoolQueued: number
   lastReading: TrendPoint
   lastPhasor: PhasorSnapshot
   lastChannels?: ChannelSnapshot
@@ -192,6 +191,7 @@ export type AlignedPoint = {
 
 export type AlignedBatch = {
   ts: number
+  tsUs?: number
   points: Record<string, AlignedPoint>
   missing: string[]
   complete: boolean

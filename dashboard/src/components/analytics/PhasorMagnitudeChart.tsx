@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Box,
   Card,
@@ -15,32 +15,17 @@ import {
   Typography,
 } from '@mui/material'
 import type { SelectChangeEvent } from '@mui/material/Select'
-import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
+import { LiveLineChart } from '../charts/LiveLineChart'
 import { CHART_COLORS } from '../../constants'
-import type { AlignedBatch, AlignedPoint, PMUWithMeta } from '../../types/dashboard'
+import { useAlignedBatchesEachSecond } from '../../hooks/useAlignedBatches'
+import { alignedChartTs } from '../../utils/alignedChart'
+import type { AlignedPoint, PMUWithMeta } from '../../types/dashboard'
 import { ExternalChartLegend } from '../../utils/chartLegend'
-import {
-  CHART_AXIS_TICK,
-  CHART_GRID_STROKE,
-  ChartSeriesTooltip,
-} from '../../utils/chartTooltip'
-import { formatTS, formatTSMs, round } from '../../utils/format'
 import { chartLabel, pmuKey } from '../../utils/pmu'
-
-export const PHASOR_TREND_WINDOW = 90
 
 type Props = {
   pmus: PMUWithMeta[]
   kind: 'voltage' | 'current'
-  alignedBatches?: AlignedBatch[]
 }
 
 /** Top-level metric group in the first dropdown. */
@@ -119,7 +104,7 @@ function channelsForGroup(
   }))
 }
 
-export function PhasorMagnitudeChart({ pmus, kind, alignedBatches = [] }: Props) {
+export function PhasorMagnitudeChart({ pmus, kind }: Props) {
   const phaseKeys = kind === 'voltage' ? V_PHASES : I_PHASES
   const analogNames = useMemo(
     () => (kind === 'voltage' ? cfgAnalogNames(pmus) : []),
@@ -201,52 +186,12 @@ export function PhasorMagnitudeChart({ pmus, kind, alignedBatches = [] }: Props)
     return next
   }, [hidden, seriesKeySig])
 
-  const isHidden = useCallback((key: string) => activeHidden.has(key), [activeHidden])
-
-  const data = useMemo(() => {
-    const batches = alignedBatches.slice(-PHASOR_TREND_WINDOW)
-    return batches.map((batch) => {
-      const row: Record<string, number | undefined> & { ts: number } = { ts: batch.ts }
-      for (const ch of selectedOptions) {
-        for (const pmu of pmus) {
-          const suffix = ch.analogName ? pmuKey(ch.analogName) : ch.key
-          const key = `${pmuKey(pmu.name)}__${suffix}`
-          const point = batch.points?.[pmu.name]
-          let value: number | undefined
-          if (ch.analogName) {
-            const v = point?.analogs?.[ch.analogName]
-            value = typeof v === 'number' ? v : undefined
-          } else if (ch.field) {
-            const v = point?.[ch.field]
-            value = typeof v === 'number' ? v : undefined
-          }
-          row[key] = value
-        }
-      }
-      return row
-    })
-  }, [alignedBatches, pmus, selectedOptions])
-
-  const hasNumeric = data.some((row) =>
-    chartSeries.some((series) => typeof row[series.dataKey] === 'number'),
-  )
-  const hasSeries = data.length > 0 && chartSeries.length > 0
-  const yDomain: [number | 'auto', number | 'auto'] | [number, 'auto'] =
-    activeMetric === 'magnitude' ? [0, 'auto'] : ['auto', 'auto']
-
   const channelSummary =
     selectedOptions.length === channelOptions.length
       ? 'all'
       : selectedOptions.map((c) => c.label).join(', ') || 'none'
 
-  const subtitle = data.length
-    ? `${METRIC_LABEL[activeMetric]} · ${channelSummary} · ${pmus.length} PMU${pmus.length === 1 ? '' : 's'}`
-    : `Waiting for aligned ${kind} ticks…`
-
-  const valueFmt = (value: unknown) =>
-    value == null || Number.isNaN(Number(value))
-      ? '—'
-      : `${round(Number(value), activeMetric === 'analogs' ? 3 : 2)}${unit ? ` ${unit}` : ''}`
+  const subtitle = `${METRIC_LABEL[activeMetric]} · ${channelSummary} · ${pmus.length} PMU${pmus.length === 1 ? '' : 's'}`
 
   const onMetricChange = (e: SelectChangeEvent<MetricGroup>) => {
     setMetric(e.target.value as MetricGroup)
@@ -340,68 +285,21 @@ export function PhasorMagnitudeChart({ pmus, kind, alignedBatches = [] }: Props)
       />
       <CardContent sx={{ pt: 0 }}>
         <Box sx={{ width: '100%', minWidth: 0 }}>
-          {!hasSeries ? (
-            <Typography sx={{ p: 2, color: 'text.secondary' }}>
-              Waiting for aligned {kind} ticks…
-            </Typography>
-          ) : !hasNumeric && activeMetric === 'analogs' ? (
-            <Typography sx={{ p: 2, color: 'text.secondary' }}>
-              No analog values on aligned ticks yet. Waiting…
-            </Typography>
-          ) : !selectedOptions.length ? (
+          {!selectedOptions.length ? (
             <Typography sx={{ p: 2, color: 'text.secondary' }}>
               Select at least one channel to plot.
             </Typography>
           ) : (
             <>
-              <Box sx={{ width: '100%', height: { xs: 220, sm: 250 } }}>
-                <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
-                  <LineChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
-                    <CartesianGrid stroke={CHART_GRID_STROKE} strokeDasharray="3 3" />
-                    <XAxis
-                      dataKey="ts"
-                      tickFormatter={formatTS}
-                      tick={CHART_AXIS_TICK}
-                      interval="preserveStartEnd"
-                      minTickGap={28}
-                      stroke="#94a3b8"
-                    />
-                    <YAxis
-                      tick={CHART_AXIS_TICK}
-                      domain={yDomain}
-                      tickFormatter={(v) => `${round(Number(v), 1)}`}
-                      width={52}
-                      stroke="#94a3b8"
-                    />
-                    <Tooltip
-                      content={(props) => (
-                        <ChartSeriesTooltip
-                          {...props}
-                          labelFormatter={(value) => formatTSMs(Number(value))}
-                          formatter={(value, name) => [valueFmt(value), String(name)]}
-                        />
-                      )}
-                    />
-                    {chartSeries.map((series) =>
-                      isHidden(series.dataKey) ? null : (
-                        <Line
-                          key={series.dataKey}
-                          type="monotone"
-                          dataKey={series.dataKey}
-                          name={series.name}
-                          stroke={series.color}
-                          strokeDasharray={series.dash}
-                          dot={false}
-                          activeDot={{ r: 4, strokeWidth: 2, fill: '#0f172a' }}
-                          strokeWidth={2.25}
-                          isAnimationActive={false}
-                          connectNulls={false}
-                        />
-                      ),
-                    )}
-                  </LineChart>
-                </ResponsiveContainer>
-              </Box>
+              <MagnitudeCanvas
+                pmus={pmus}
+                kind={kind}
+                selectedOptions={selectedOptions}
+                chartSeries={chartSeries}
+                activeHidden={activeHidden}
+                activeMetric={activeMetric}
+                unit={unit}
+              />
               <ExternalChartLegend
                 items={chartSeries.map((s) => ({ key: s.dataKey, name: s.name, color: s.color }))}
                 hidden={activeHidden}
@@ -412,5 +310,91 @@ export function PhasorMagnitudeChart({ pmus, kind, alignedBatches = [] }: Props)
         </Box>
       </CardContent>
     </Card>
+  )
+}
+
+function MagnitudeCanvas({
+  pmus,
+  kind,
+  selectedOptions,
+  chartSeries,
+  activeHidden,
+  activeMetric,
+  unit,
+}: {
+  pmus: PMUWithMeta[]
+  kind: 'voltage' | 'current'
+  selectedOptions: ChannelOption[]
+  chartSeries: { dataKey: string; name: string; color: string; dash?: string }[]
+  activeHidden: Set<string>
+  activeMetric: MetricGroup
+  unit: string
+}) {
+  const batches = useAlignedBatchesEachSecond()
+  const data = useMemo(() => {
+    return batches.map((batch) => {
+      const row: { ts: number } & Record<string, number | undefined> = { ts: alignedChartTs(batch) }
+      for (const ch of selectedOptions) {
+        for (const pmu of pmus) {
+          const suffix = ch.analogName ? pmuKey(ch.analogName) : ch.key
+          const key = `${pmuKey(pmu.name)}__${suffix}`
+          const point = batch.points?.[pmu.name]
+          let value: number | undefined
+          if (ch.analogName) {
+            const v = point?.analogs?.[ch.analogName]
+            value = typeof v === 'number' ? v : undefined
+          } else if (ch.field) {
+            const v = point?.[ch.field]
+            value = typeof v === 'number' ? v : undefined
+          }
+          row[key] = value
+        }
+      }
+      return row
+    })
+  }, [batches, pmus, selectedOptions])
+
+  const hasNumeric = data.some((row) =>
+    chartSeries.some((series) => typeof row[series.dataKey] === 'number'),
+  )
+
+  if (!data.length) {
+    return (
+      <Typography sx={{ p: 2, color: 'text.secondary' }}>
+        Waiting for aligned {kind} ticks…
+      </Typography>
+    )
+  }
+  if (!hasNumeric && activeMetric === 'analogs') {
+    return (
+      <Typography sx={{ p: 2, color: 'text.secondary' }}>
+        No analog values on aligned ticks yet. Waiting…
+      </Typography>
+    )
+  }
+
+  const series = chartSeries
+    .filter((item) => !activeHidden.has(item.dataKey))
+    .map((item) => ({
+      key: item.dataKey,
+      name: item.name,
+      color: item.color,
+      dash: item.dash,
+    }))
+
+  return (
+    <Box sx={{ width: '100%', height: { xs: 220, sm: 250 } }}>
+      <LiveLineChart
+        rows={data}
+        series={series}
+        yDigits={activeMetric === 'analogs' ? 3 : 2}
+        unit={unit}
+        yBounds={
+          activeMetric === 'magnitude'
+            ? (_min, max) => [0, max > 0 ? max : 1]
+            : undefined
+        }
+      />
+    </Box>
   )
 }

@@ -1,7 +1,6 @@
 // sink.go — thin adapter over the Timescale history writer.
 //
-// Not wired into the live HandleFrame path yet (phases 3–4). Construct with
-// NewSinkFromEnv when ENABLE_HISTORY=true.
+// Wired from HandleFrame when ENABLE_HISTORY=true (NewSinkFromEnv).
 package output
 
 import (

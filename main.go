@@ -9,7 +9,7 @@
 //  6. Show everything on the live dashboard
 //
 // Layout (CFG-2) always comes from the PMU connection — never from disk files.
-// Saving readings to Postgres/Timescale stays parked in output/ (kept, not wired yet).
+// History writes to Postgres/Timescale when ENABLE_HISTORY=true.
 package main
 
 import (
@@ -243,10 +243,6 @@ func (p *pipeline) HandleFrame(pmuName string, raw []byte, receivedAt time.Time)
 		return
 	}
 
-	if !reading.Timestamp.IsZero() {
-		monitoring.UpdateClockOffset(pmuName, receivedAt, reading.Timestamp)
-	}
-
 	// Remember this frame in RAM so we can dump it later (not durable storage).
 	output.RecordFrameAsync(pmuName, raw, reading)
 
@@ -373,6 +369,62 @@ func logFirstFrames(pmuName string, traceIndex int, reading parser.Reading) {
 		reading.VA.Magnitude, reading.VA.PhaseDegrees)
 }
 
+// launchActivePMUs reads the address book and starts every active PMU.
+// A store that is not connected yet returns an error so the caller can retry.
+func launchActivePMUs(ctx context.Context, dbStore *store.Store, pmuManager *manager.PMUManager) error {
+	pmus, err := dbStore.GetActivePMUs(ctx)
+	if err != nil {
+		return err
+	}
+	if err := validatePMUEndpoints(pmus); err != nil {
+		log.Fatalf("invalid PMU config: %v", err)
+	}
+
+	stagger := envDuration("PMU_STARTUP_STAGGER", 2*time.Second)
+	log.Printf("starting %d PMUs in parallel (startup stagger=%s; 0s = all at once)", len(pmus), stagger)
+	for i := range pmus {
+		pmus[i].Normalize()
+		pmu := pmus[i]
+		if i > 0 && stagger > 0 {
+			log.Printf("waiting %s before starting %s", stagger, pmu.Name)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(stagger):
+			}
+		}
+		if pmuManager.IsConfigured(pmu.Name) {
+			continue
+		}
+		if err := pmuManager.StartPMU(ctx, pmu); err != nil {
+			log.Fatalf("start %s: %v", pmu.Name, err)
+		}
+	}
+	return nil
+}
+
+// retryActivePMUs starts the saved PMUs on the first successful database connect.
+func retryActivePMUs(ctx context.Context, dbStore *store.Store, pmuManager *manager.PMUManager) {
+	t := time.NewTicker(2 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if !dbStore.Ready() {
+				continue
+			}
+			if err := launchActivePMUs(ctx, dbStore, pmuManager); err != nil {
+				log.Printf("load PMUs: %v — retrying", err)
+				continue
+			}
+			log.Printf("load PMUs: started saved devices after database connect")
+			return
+		}
+	}
+}
+
 func main() {
 	// Local .env fills unset knobs; real OS env always wins.
 	if err := envfile.Load(".env"); err != nil {
@@ -382,6 +434,10 @@ func main() {
 	metricsAddr := flag.String("metrics-addr", ":2112", "dashboard + metrics port")
 	apiAddr := flag.String("api-addr", ":8081", "PMU config REST API port")
 	flag.Parse()
+
+	if store.DSN() == "" {
+		log.Fatal("POSTGRES_DSN is not set. Add it to the .env file in the folder you start the program from.")
+	}
 
 	// Address book of PMUs (Postgres). Soft-fail: PDC starts even if DB is down.
 	dbStore := store.NewStore()
@@ -450,27 +506,11 @@ func main() {
 		log.Fatalf("REST API: %v", err)
 	}
 
-	pmus, err := dbStore.GetActivePMUs(ctx)
-	if err != nil {
-		log.Printf("load PMUs: %v — starting with none (will use API once DB is up)", err)
-		pmus = nil
-	}
-	if err := validatePMUEndpoints(pmus); err != nil {
-		log.Fatalf("invalid PMU config: %v", err)
-	}
-
-	stagger := envDuration("PMU_STARTUP_STAGGER", 2*time.Second)
-	log.Printf("starting %d PMUs in parallel (startup stagger=%s; 0s = all at once)", len(pmus), stagger)
-	for i := range pmus {
-		pmus[i].Normalize()
-		pmu := pmus[i]
-		if i > 0 && stagger > 0 {
-			log.Printf("waiting %s before starting %s", stagger, pmu.Name)
-			time.Sleep(stagger)
-		}
-		if err := pmuManager.StartPMU(ctx, pmu); err != nil {
-			log.Fatalf("start %s: %v", pmu.Name, err)
-		}
+	// Timescale is often a few seconds behind Docker at boot. If the address book
+	// is down, keep retrying and start the saved PMUs once it accepts connections.
+	if err := launchActivePMUs(ctx, dbStore, pmuManager); err != nil {
+		log.Printf("load PMUs: %v — waiting for database", err)
+		go retryActivePMUs(ctx, dbStore, pmuManager)
 	}
 
 	monitoring.RecordConversation("SYSTEM", "PDC", "SYSTEM", "startup", "ok",

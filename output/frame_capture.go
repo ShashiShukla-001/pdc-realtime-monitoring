@@ -114,8 +114,14 @@ func RecordFrame(pmuName string, raw []byte, reading parser.Reading) {
 
 var (
 	frameCaptureOnce sync.Once
-	frameCaptureCh   chan capturedFrame
+	frameCaptureCh   chan captureRequest
 )
+
+type captureRequest struct {
+	pmuName string
+	raw     []byte
+	reading parser.Reading
+}
 
 func startWorker() {
 	frameCaptureOnce.Do(func() {
@@ -125,24 +131,27 @@ func startWorker() {
 				cap = n
 			}
 		}
-		frameCaptureCh = make(chan capturedFrame, cap)
+		frameCaptureCh = make(chan captureRequest, cap)
 		go func() {
-			for entry := range frameCaptureCh {
-				recordLocked(entry)
+			for job := range frameCaptureCh {
+				recordLocked(makeEntry(job.pmuName, job.raw, job.reading))
 			}
 		}()
 	})
 }
 
-// RecordFrameAsync remembers a frame without slowing down the parse path.
+// RecordFrameAsync copies the frame bytes and queues them.
+// Hex and the timestamp jump check run on the capture worker.
 // If the queue is full we drop the sample (live data still flows).
 func RecordFrameAsync(pmuName string, raw []byte, reading parser.Reading) {
 	if len(raw) == 0 {
 		return
 	}
 	startWorker()
+	copied := make([]byte, len(raw))
+	copy(copied, raw)
 	select {
-	case frameCaptureCh <- makeEntry(pmuName, raw, reading):
+	case frameCaptureCh <- captureRequest{pmuName: pmuName, raw: copied, reading: reading}:
 	default:
 	}
 }
@@ -448,6 +457,6 @@ func handleFrameCaptureDump(w http.ResponseWriter, r *http.Request) {
 		"ok": true, "format": "csv", "requested": count, "count": n,
 		"buffer_limit": status["limit"], "buffered": status["buffered"],
 		"buffered_by_pmu": status["buffered_by_pmu"],
-		"raw_file": rawOut, "parsed_file": parsedOut, "warning": warn,
+		"raw_file":        rawOut, "parsed_file": parsedOut, "warning": warn,
 	})
 }

@@ -18,7 +18,7 @@ func TestNewStoreDegradedWhenDBDown(t *testing.T) {
 		_ = os.Setenv("POSTGRES_RECONNECT_SEC", prevReconnect)
 	})
 	// Nothing listens here.
-	_ = os.Setenv("POSTGRES_DSN", "postgres://pdc:pdc@127.0.0.1:1/pdc?sslmode=disable")
+	_ = os.Setenv("POSTGRES_DSN", "postgres://unused:unused@127.0.0.1:1/pdc?sslmode=disable")
 	_ = os.Setenv("POSTGRES_RECONNECT_SEC", "1h") // avoid noisy reconnect during test
 
 	s := NewStore()

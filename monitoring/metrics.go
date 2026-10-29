@@ -35,12 +35,6 @@ var (
 	storeErrors = prometheus.NewCounter(
 		prometheus.CounterOpts{Name: "pdc_store_errors_total", Help: "Total Postgres store errors."},
 	)
-	spoolQueued = prometheus.NewCounter(
-		prometheus.CounterOpts{Name: "pdc_spool_queued_total", Help: "Total readings queued to local durable spool."},
-	)
-	spoolReplayed = prometheus.NewCounter(
-		prometheus.CounterOpts{Name: "pdc_spool_replayed_total", Help: "Total readings replayed from local durable spool."},
-	)
 	processingLatency = prometheus.NewHistogram(
 		prometheus.HistogramOpts{
 			Name:    "pdc_frame_processing_seconds",
@@ -68,8 +62,6 @@ func init() {
 		parseErrors,
 		qualityRejected,
 		storeErrors,
-		spoolQueued,
-		spoolReplayed,
 		processingLatency,
 		sinkInflight,
 		dashboardQueueDropped,
@@ -88,15 +80,6 @@ func IncParseErrors() { parseErrors.Inc() }
 func IncQualityRejected() { qualityRejected.Inc() }
 
 func IncStoreErrors() { storeErrors.Inc() }
-
-func IncSpoolQueued() { spoolQueued.Inc() }
-
-func IncSpoolReplayed(n int) {
-	if n <= 0 {
-		return
-	}
-	spoolReplayed.Add(float64(n))
-}
 
 func IncDashboardQueueDropped() { dashboardQueueDropped.Inc() }
 

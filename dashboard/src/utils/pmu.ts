@@ -293,7 +293,6 @@ export function buildOfflinePMU(name: string, meta: PMUMeta): PMUWithMeta {
     skewRejects: 0,
     lastQualityReject: '',
     sinkErrors: 0,
-    spoolQueued: 0,
     lastReading: { ts: 0, frequency: 0, frequencyDev: 0, mw: 0, mvar: 0, rocof: 0, statDataError: false },
     lastPhasor: {
       va: { magnitude: 0, angleDeg: 0 },
