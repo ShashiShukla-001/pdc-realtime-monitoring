@@ -275,9 +275,12 @@ func NewWriter(parent context.Context, cfg WriterConfig) (*Writer, error) {
 	if cfg.Reconnect <= 0 {
 		cfg.Reconnect = envDurationMS("HISTORY_RECONNECT_MS", 5000)
 	}
-	dsn := cfg.DSN
+	dsn := strings.TrimSpace(cfg.DSN)
 	if dsn == "" {
 		dsn = store.DSN()
+	}
+	if dsn == "" {
+		return nil, fmt.Errorf("POSTGRES_DSN is not set")
 	}
 
 	runCtx, cancel := context.WithCancel(parent)

@@ -1,80 +1,45 @@
-import { memo } from 'react'
-import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  ReferenceLine,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
-import type { TrendPoint } from '../../types/dashboard'
-import {
-  CHART_AXIS_TICK,
-  CHART_GRID_STROKE,
-  ChartSeriesTooltip,
-} from '../../utils/chartTooltip'
-import { formatTS, formatTSMs, round } from '../../utils/format'
+import { useMemo } from 'react'
+import { LiveLineChart } from '../charts/LiveLineChart'
+import { useAlignedBatchesEachSecond } from '../../hooks/useAlignedBatches'
+import { trendFromAlignedBatches } from '../../utils/alignedChart'
 
 type Props = {
-  data: TrendPoint[]
+  pmuName: string
   fnomHz?: number
 }
 
-export const FreqChart = memo(function FreqChart({ data, fnomHz = 60 }: Props) {
+export function FreqChart({ pmuName, fnomHz = 60 }: Props) {
+  const batches = useAlignedBatchesEachSecond()
+  const rows = useMemo(
+    () =>
+      trendFromAlignedBatches(batches, pmuName, batches.length || 1).map((point) => ({
+        ts: point.ts,
+        frequency: point.frequency,
+      })),
+    [batches, pmuName],
+  )
+
   return (
     <div className="panel chart-panel">
       <div className="panel-head">
         <div>
           <h3>Frequency</h3>
-          <p className="panel-sub">Hz · time-aligned ticks · FNOM {fnomHz} Hz</p>
+          <p className="panel-sub">Hz · each aligned tick · FNOM {fnomHz} Hz</p>
         </div>
       </div>
       <div className="chart-wrap small">
-        <ResponsiveContainer width="99%" height="100%" minWidth={1} minHeight={1}>
-          <LineChart data={data} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
-            <CartesianGrid stroke={CHART_GRID_STROKE} strokeDasharray="3 3" />
-            <XAxis
-              dataKey="ts"
-              tickFormatter={formatTS}
-              tick={CHART_AXIS_TICK}
-              interval={8}
-              stroke="#94a3b8"
-            />
-            <YAxis
-              domain={['auto', 'auto']}
-              tick={CHART_AXIS_TICK}
-              tickFormatter={(v) => `${round(Number(v), 3)}`}
-              width={56}
-              stroke="#94a3b8"
-            />
-            <Tooltip
-              content={(props) => (
-                <ChartSeriesTooltip
-                  {...props}
-                  labelFormatter={(value) => formatTSMs(Number(value))}
-                  formatter={(value, name) => [
-                    `${round(Number(value ?? 0), 4)} Hz`,
-                    String(name ?? 'Freq (Hz)'),
-                  ]}
-                />
-              )}
-            />
-            <ReferenceLine y={fnomHz} stroke="#15803d" strokeDasharray="4 4" label={`FNOM ${fnomHz}`} />
-            <Line
-              type="linear"
-              dataKey="frequency"
-              name="Freq (Hz)"
-              stroke="#2563eb"
-              dot={false}
-              strokeWidth={1.75}
-              isAnimationActive={false}
-              connectNulls={false}
-            />
-          </LineChart>
-        </ResponsiveContainer>
+        <LiveLineChart
+          rows={rows}
+          series={[{ key: 'frequency', name: 'Freq (Hz)', color: '#2563eb' }]}
+          yDigits={3}
+          unit="Hz"
+          yBounds={(min, max) => [
+            Math.min(Number.isFinite(min) ? min : fnomHz, fnomHz - 0.05),
+            Math.max(Number.isFinite(max) ? max : fnomHz, fnomHz + 0.05),
+          ]}
+          guides={[{ y: fnomHz, color: '#15803d', label: `FNOM ${fnomHz}` }]}
+        />
       </div>
     </div>
   )
-})
+}

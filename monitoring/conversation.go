@@ -117,32 +117,31 @@ type CFGSummary struct {
 }
 
 type PMUState struct {
-	Name           string             `json:"name"`
-	Connected      bool               `json:"connected"`
-	ConnectionText string             `json:"connectionText"`
-	LastEventTime  time.Time          `json:"lastEventTime"`
-	LastFrameTime  time.Time          `json:"lastFrameTime"`
-	LastReceivedAt time.Time          `json:"lastReceivedAt,omitempty"` // TCP receive time of latest DATA frame
-	LastHandshake  time.Time          `json:"lastHandshake"`
-	LastError      string             `json:"lastError"`
-	TotalFrames    int64              `json:"totalFrames"`
-	ApproxFPS      float64            `json:"approxFps"`
-	QualityRejects int64              `json:"qualityRejects"`
+	Name           string    `json:"name"`
+	Connected      bool      `json:"connected"`
+	ConnectionText string    `json:"connectionText"`
+	LastEventTime  time.Time `json:"lastEventTime"`
+	LastFrameTime  time.Time `json:"lastFrameTime"`
+	LastReceivedAt time.Time `json:"lastReceivedAt,omitempty"` // TCP receive time of latest DATA frame
+	LastHandshake  time.Time `json:"lastHandshake"`
+	LastError      string    `json:"lastError"`
+	TotalFrames    int64     `json:"totalFrames"`
+	ApproxFPS      float64   `json:"approxFps"`
+	QualityRejects int64     `json:"qualityRejects"`
 	// SkewRejects counts quality rejects whose reason mentions clock skew.
 	SkewRejects int64 `json:"skewRejects"`
 	// LastQualityReject is the most recent Validate() reason (empty if never rejected).
-	LastQualityReject string `json:"lastQualityReject,omitempty"`
-	SinkErrors        int64  `json:"sinkErrors"`
-	SpoolQueued    int64              `json:"spoolQueued"`
-	LastReading    TrendPoint         `json:"lastReading"`
-	LastPhasor     PhasorSnapshot     `json:"lastPhasor"`
-	LastChannels   ChannelSnapshot    `json:"lastChannels"`
-	LastFrame      FrameStamp         `json:"lastFrame"`
-	CFG            CFGSummary         `json:"cfg"`
-	Trends         []TrendPoint       `json:"trends"`
-	FnomHz         int                `json:"fnomHz"`
-	StatDataError  bool               `json:"statDataError"`
-	LastHops       map[string]float64 `json:"lastHops,omitempty"`
+	LastQualityReject string             `json:"lastQualityReject,omitempty"`
+	SinkErrors        int64              `json:"sinkErrors"`
+	LastReading       TrendPoint         `json:"lastReading"`
+	LastPhasor        PhasorSnapshot     `json:"lastPhasor"`
+	LastChannels      ChannelSnapshot    `json:"lastChannels"`
+	LastFrame         FrameStamp         `json:"lastFrame"`
+	CFG               CFGSummary         `json:"cfg"`
+	Trends            []TrendPoint       `json:"trends"`
+	FnomHz            int                `json:"fnomHz"`
+	StatDataError     bool               `json:"statDataError"`
+	LastHops          map[string]float64 `json:"lastHops,omitempty"`
 	// TCP kernel receive queue (bytes waiting to be Read). Only set for TCP DATA streams.
 	TCPUnreadBytes *int `json:"tcpUnreadBytes,omitempty"`
 	TCPRecvBufMax  *int `json:"tcpRecvBufMax,omitempty"`
@@ -172,6 +171,7 @@ type AlignedPoint struct {
 // AlignedBatch is a locked SOC/FRACSEC slot for analytics charts.
 type AlignedBatch struct {
 	TS       int64                   `json:"ts"`
+	TSUs     int64                   `json:"tsUs,omitempty"`
 	Points   map[string]AlignedPoint `json:"points"`
 	Missing  []string                `json:"missing"`
 	Complete bool                    `json:"complete"`
@@ -204,30 +204,29 @@ type DashboardState struct {
 }
 
 type pmuRuntime struct {
-	name           string
-	lastEventTime  time.Time
-	lastFrameTime  time.Time
-	lastReceivedAt time.Time // Trace.ReceivedAt from latest DATA frame
-	lastHandshake  time.Time
-	lastError      string
+	name              string
+	lastEventTime     time.Time
+	lastFrameTime     time.Time
+	lastReceivedAt    time.Time // Trace.ReceivedAt from latest DATA frame
+	lastHandshake     time.Time
+	lastError         string
 	totalFrames       int64
 	qualityReject     int64
 	skewReject        int64
 	lastQualityReject string
 	sinkErrors        int64
-	spoolQueued    int64
-	lastPhasor     PhasorSnapshot
-	lastChannels   ChannelSnapshot
-	lastFrame      FrameStamp
-	trends         []TrendPoint
-	fnomHz         int
-	statDataError  bool
-	approxFPS      float64
-	fpsWindowStart time.Time
-	fpsMeasStart   time.Time
-	fpsWindowCount int
-	lastFPSKey     string // last SOC|FRACSEC counted toward approxFPS (dedupe wire repeats)
-	lastTrendAt    time.Time
+	lastPhasor        PhasorSnapshot
+	lastChannels      ChannelSnapshot
+	lastFrame         FrameStamp
+	trends            []TrendPoint
+	fnomHz            int
+	statDataError     bool
+	approxFPS         float64
+	fpsWindowStart    time.Time
+	fpsMeasStart      time.Time
+	fpsWindowCount    int
+	lastFPSKey        string // last SOC|FRACSEC counted toward approxFPS (dedupe wire repeats)
+	lastTrendAt       time.Time
 }
 
 const maxConversationEvents = 200
@@ -329,10 +328,17 @@ func cfgSummaryForPMU(name string) CFGSummary {
 	}
 }
 
+// alignedStreamEvent is one SSE message. reset clears the client chart ring.
+type alignedStreamEvent struct {
+	reset bool
+	batch AlignedBatch
+}
+
 var conversationBus = struct {
 	mu             sync.Mutex
 	events         []ConversationEvent
 	subscribers    map[chan ConversationEvent]struct{}
+	alignedSubs    map[chan alignedStreamEvent]struct{}
 	pmus           map[string]*pmuRuntime
 	alignedBatches []AlignedBatch
 
@@ -352,6 +358,7 @@ var conversationBus = struct {
 }{
 	events:         make([]ConversationEvent, 0, maxConversationEvents),
 	subscribers:    make(map[chan ConversationEvent]struct{}),
+	alignedSubs:    make(map[chan alignedStreamEvent]struct{}),
 	pmus:           make(map[string]*pmuRuntime),
 	alignedBatches: make([]AlignedBatch, 0, maxAlignedBatches),
 }
@@ -483,19 +490,23 @@ func RecordAlignedFrame(tsUs int64, present map[string]parser.Reading, missing [
 		}
 	}
 	missCopy := append([]string(nil), missing...)
+	batch := AlignedBatch{
+		TS:       tsMs,
+		TSUs:     tsUs,
+		Points:   points,
+		Missing:  missCopy,
+		Complete: complete,
+		Reason:   reason,
+	}
 
 	conversationBus.mu.Lock()
 	if len(conversationBus.alignedBatches) >= maxAlignedBatches {
 		copy(conversationBus.alignedBatches, conversationBus.alignedBatches[1:])
 		conversationBus.alignedBatches = conversationBus.alignedBatches[:maxAlignedBatches-1]
 	}
-	conversationBus.alignedBatches = append(conversationBus.alignedBatches, AlignedBatch{
-		TS:       tsMs,
-		Points:   points,
-		Missing:  missCopy,
-		Complete: complete,
-		Reason:   reason,
-	})
+	conversationBus.alignedBatches = append(conversationBus.alignedBatches, batch)
+	// Non-blocking: a slow browser drops ticks. The publisher never waits.
+	publishAlignedLocked(alignedStreamEvent{batch: batch})
 	conversationBus.alignEmitted++
 	switch reason {
 	case "complete":
@@ -541,6 +552,18 @@ func ClearAlignedBatches() {
 	conversationBus.alignTimeout = 0
 	conversationBus.alignCap = 0
 	conversationBus.alignLastLog = time.Time{}
+	publishAlignedLocked(alignedStreamEvent{reset: true})
+}
+
+// publishAlignedLocked fans a tick out to SSE clients. Caller holds conversationBus.mu.
+// Full client channels are skipped so this never blocks the aligner publisher.
+func publishAlignedLocked(ev alignedStreamEvent) {
+	for ch := range conversationBus.alignedSubs {
+		select {
+		case ch <- ev:
+		default:
+		}
+	}
 }
 
 func recordReadingSync(r parser.Reading) {
@@ -701,39 +724,6 @@ func IncSinkErrorForPMU(pmu string) {
 	st.lastEventTime = time.Now().UTC()
 }
 
-func IncSpoolQueuedForPMU(pmu string) {
-	conversationBus.mu.Lock()
-	defer conversationBus.mu.Unlock()
-	st := getOrCreatePMU(pmu)
-	st.spoolQueued++
-	st.lastEventTime = time.Now().UTC()
-}
-
-func AddSpoolQueuedForPMU(pmu string, n int64) {
-	if n <= 0 {
-		return
-	}
-	conversationBus.mu.Lock()
-	defer conversationBus.mu.Unlock()
-	st := getOrCreatePMU(pmu)
-	st.spoolQueued += n
-	st.lastEventTime = time.Now().UTC()
-}
-
-func DecSpoolQueuedForPMU(pmu string, n int64) {
-	if n <= 0 {
-		return
-	}
-	conversationBus.mu.Lock()
-	defer conversationBus.mu.Unlock()
-	st := getOrCreatePMU(pmu)
-	st.spoolQueued -= n
-	if st.spoolQueued < 0 {
-		st.spoolQueued = 0
-	}
-	st.lastEventTime = time.Now().UTC()
-}
-
 func RecordConversation(pmu, from, to, stage, status, message string) {
 	if strings.TrimSpace(pmu) == "" {
 		pmu = "SYSTEM"
@@ -799,6 +789,7 @@ func RecordConversation(pmu, from, to, stage, status, message string) {
 func registerConversationHandlers(mux *http.ServeMux) {
 	mux.HandleFunc("/conversation", handleConversationPage)
 	mux.HandleFunc("/conversation/events", handleConversationEvents)
+	mux.HandleFunc("/conversation/aligned", handleConversationAligned)
 	mux.HandleFunc("/conversation/recent", handleConversationRecent)
 	mux.HandleFunc("/conversation/state", handleConversationState)
 	mux.HandleFunc("/conversation/latency", handleConversationLatency)
@@ -816,6 +807,7 @@ func handleConversationPage(w http.ResponseWriter, _ *http.Request) {
 		"PDC telemetry endpoints (UI lives in the dashboard/ React app):",
 		"  /conversation/state       dashboard snapshot (PMUs, live inventory)",
 		"  /conversation/events      SSE live event stream",
+		"  /conversation/aligned     SSE aligned chart ticks (one row per tick)",
 		"  /conversation/recent      recent events, one-shot",
 		"  /conversation/latency     pipeline stage latency",
 		"  /conversation/frame-diag  per-stage frame accounting",
@@ -831,10 +823,12 @@ func handleConversationRecent(w http.ResponseWriter, _ *http.Request) {
 	_ = enc.Encode(snapshotEvents())
 }
 
-func handleConversationState(w http.ResponseWriter, _ *http.Request) {
+func handleConversationState(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	// ?aligned=0 — status poll while the chart SSE is connected (skip the tick window).
+	includeAligned := r.URL.Query().Get("aligned") != "0"
 	enc := json.NewEncoder(w)
-	_ = enc.Encode(snapshotDashboard())
+	_ = enc.Encode(snapshotDashboard(includeAligned))
 }
 
 func handleConversationLatency(w http.ResponseWriter, _ *http.Request) {
@@ -887,6 +881,79 @@ func writeSSE(w http.ResponseWriter, e ConversationEvent) {
 	_, _ = fmt.Fprintf(w, "event: message\ndata: %s\n\n", b)
 }
 
+func handleConversationAligned(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	ch := make(chan alignedStreamEvent, 128)
+	backlog := addAlignedSubscriber(ch)
+	defer removeAlignedSubscriber(ch)
+
+	for _, b := range backlog {
+		writeAlignedSSE(w, b)
+	}
+	flusher.Flush()
+
+	keepAlive := time.NewTicker(15 * time.Second)
+	defer keepAlive.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-keepAlive.C:
+			_, _ = w.Write([]byte(": ping\n\n"))
+			flusher.Flush()
+		case ev, ok := <-ch:
+			if !ok {
+				return
+			}
+			if ev.reset {
+				_, _ = w.Write([]byte("data: {\"reset\":true}\n\n"))
+			} else {
+				writeAlignedSSE(w, ev.batch)
+			}
+			flusher.Flush()
+		}
+	}
+}
+
+func writeAlignedSSE(w http.ResponseWriter, b AlignedBatch) {
+	raw, err := json.Marshal(b)
+	if err != nil {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "data: %s\n\n", raw)
+}
+
+func addAlignedSubscriber(ch chan alignedStreamEvent) []AlignedBatch {
+	conversationBus.mu.Lock()
+	defer conversationBus.mu.Unlock()
+	conversationBus.alignedSubs[ch] = struct{}{}
+	n := len(conversationBus.alignedBatches)
+	start := 0
+	if n > alignedBatchExport {
+		start = n - alignedBatchExport
+	}
+	out := make([]AlignedBatch, n-start)
+	copy(out, conversationBus.alignedBatches[start:])
+	return out
+}
+
+func removeAlignedSubscriber(ch chan alignedStreamEvent) {
+	conversationBus.mu.Lock()
+	delete(conversationBus.alignedSubs, ch)
+	conversationBus.mu.Unlock()
+	close(ch)
+}
+
 func snapshotEvents() []ConversationEvent {
 	conversationBus.mu.Lock()
 	defer conversationBus.mu.Unlock()
@@ -895,8 +962,8 @@ func snapshotEvents() []ConversationEvent {
 	return out
 }
 
-func snapshotDashboard() DashboardState {
-	now, pmus, alignStatus, alignedCopy, eventCount := snapshotDashboardCore()
+func snapshotDashboard(includeAligned bool) DashboardState {
+	now, pmus, alignStatus, alignedCopy, eventCount := snapshotDashboardCore(includeAligned)
 
 	hops := copyAllLastHops()
 	for i := range pmus {
@@ -942,7 +1009,7 @@ func snapshotDashboard() DashboardState {
 	}
 }
 
-func snapshotDashboardCore() (now time.Time, pmus []PMUState, alignStatus AlignerStatus, alignedCopy []AlignedBatch, eventCount int) {
+func snapshotDashboardCore(includeAligned bool) (now time.Time, pmus []PMUState, alignStatus AlignerStatus, alignedCopy []AlignedBatch, eventCount int) {
 	conversationBus.mu.Lock()
 	defer conversationBus.mu.Unlock()
 
@@ -995,29 +1062,28 @@ func snapshotDashboardCore() (now time.Time, pmus []PMUState, alignStatus Aligne
 		}
 
 		pmus = append(pmus, PMUState{
-			Name:           st.name,
-			Connected:      connected,
-			ConnectionText: connText,
-			LastEventTime:  st.lastEventTime,
-			LastFrameTime:  st.lastFrameTime,
-			LastReceivedAt: st.lastReceivedAt,
-			LastHandshake:  st.lastHandshake,
-			LastError:      st.lastError,
+			Name:              st.name,
+			Connected:         connected,
+			ConnectionText:    connText,
+			LastEventTime:     st.lastEventTime,
+			LastFrameTime:     st.lastFrameTime,
+			LastReceivedAt:    st.lastReceivedAt,
+			LastHandshake:     st.lastHandshake,
+			LastError:         st.lastError,
 			TotalFrames:       st.totalFrames,
 			ApproxFPS:         fps,
 			QualityRejects:    st.qualityReject,
 			SkewRejects:       st.skewReject,
 			LastQualityReject: st.lastQualityReject,
 			SinkErrors:        st.sinkErrors,
-			SpoolQueued:    st.spoolQueued,
-			LastReading:    last,
-			LastPhasor:     lastPhasor,
-			LastChannels:   lastChannels,
-			LastFrame:      st.lastFrame,
-			CFG:            cfg,
-			Trends:         trendCopy,
-			FnomHz:         st.fnomHz,
-			StatDataError:  st.statDataError,
+			LastReading:       last,
+			LastPhasor:        lastPhasor,
+			LastChannels:      lastChannels,
+			LastFrame:         st.lastFrame,
+			CFG:               cfg,
+			Trends:            trendCopy,
+			FnomHz:            st.fnomHz,
+			StatDataError:     st.statDataError,
 		})
 	}
 
@@ -1039,10 +1105,12 @@ func snapshotDashboardCore() (now time.Time, pmus []PMUState, alignStatus Aligne
 		Cap:         conversationBus.alignCap,
 		CompletePct: pct,
 	}
-	alignedCopy = make([]AlignedBatch, len(conversationBus.alignedBatches))
-	copy(alignedCopy, conversationBus.alignedBatches)
-	if len(alignedCopy) > alignedBatchExport {
-		alignedCopy = alignedCopy[len(alignedCopy)-alignedBatchExport:]
+	if includeAligned {
+		alignedCopy = make([]AlignedBatch, len(conversationBus.alignedBatches))
+		copy(alignedCopy, conversationBus.alignedBatches)
+		if len(alignedCopy) > alignedBatchExport {
+			alignedCopy = alignedCopy[len(alignedCopy)-alignedBatchExport:]
+		}
 	}
 	eventCount = len(conversationBus.events)
 	return now, pmus, alignStatus, alignedCopy, eventCount

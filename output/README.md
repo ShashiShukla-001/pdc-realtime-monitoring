@@ -5,7 +5,6 @@
 | `frame_capture.go` | **Active** — short in-memory tape of recent frames (CSV dump). |
 | `sink.go` | History sink adapter (`ENABLE_HISTORY=true`). Wired for CFG/events/frames when enabled. |
 | `postgres/writer.go` | **Active** — bounded queue + `CopyFrom` Timescale writer (dedicated pool, reconnect). |
-| `spool.go` | **Parked** — local durable queue if the DB is briefly down (phase 2+ later). |
 
 Env (history writer) — prefer `.env` (see `.env.example`); OS env still wins:
 

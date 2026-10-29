@@ -16,10 +16,12 @@ import { PhasorDiagram, type DiagramVector } from '../components/analytics/Phaso
 import { PhasorMagnitudeChart } from '../components/analytics/PhasorMagnitudeChart'
 import { CHART_COLORS } from '../constants'
 import { useDashboardContext } from '../context/DashboardContext'
+import { useAlignedBatchesEachSecond } from '../hooks/useAlignedBatches'
 import type { AlignedBatch, PMUWithMeta } from '../types/dashboard'
 import {
   latestAlignedBatch,
   phasorsFromAlignedPoint,
+  alignedChartTs,
 } from '../utils/alignedChart'
 import { PHASOR_I_COLORS, PHASOR_V_COLORS } from '../utils/analyticsColors'
 import { formatTSMs } from '../utils/format'
@@ -85,49 +87,7 @@ function buildVectors(
 }
 
 export function AnalyticsPage() {
-  const {
-    enabledPmus: pmus,
-    dashboard,
-    analyticsKpis,
-    analyticsRecs,
-  } = useDashboardContext()
-
-  const onlinePMUs = useMemo(() => pmus.filter((p) => p.connected), [pmus])
-
-  const [voltagePhase, setVoltagePhase] = useState<PhaseFilter>('all')
-  const [currentPhase, setCurrentPhase] = useState<PhaseFilter>('all')
-
-  const diagramBatch = useMemo(
-    () =>
-      latestAlignedBatch(
-        dashboard.alignedBatches,
-        onlinePMUs.map((p) => p.name),
-      ),
-    [dashboard.alignedBatches, onlinePMUs],
-  )
-
-  /** Online PMUs with no point on the latest aligned tick (chart-gap equivalent). */
-  const diagramMissing = useMemo(() => {
-    if (!diagramBatch) return []
-    return onlinePMUs
-      .filter((p) => !diagramBatch.points?.[p.name])
-      .map((p) => ({ name: p.name, label: chartLabel(p) }))
-  }, [diagramBatch, onlinePMUs])
-
-  const voltageVectors = useMemo(
-    () => buildVectors(onlinePMUs, pmus, 'voltage', voltagePhase, dashboard.alignedBatches),
-    [onlinePMUs, pmus, voltagePhase, dashboard.alignedBatches],
-  )
-  const currentVectors = useMemo(
-    () => buildVectors(onlinePMUs, pmus, 'current', currentPhase, dashboard.alignedBatches),
-    [onlinePMUs, pmus, currentPhase, dashboard.alignedBatches],
-  )
-
-  const emptyHint = !onlinePMUs.length
-    ? 'No online PMUs — connect a stream to plot live phasors.'
-    : !diagramBatch
-      ? 'Waiting for aligned samples…'
-      : undefined
+  const { enabledPmus: pmus, analyticsKpis, analyticsRecs } = useDashboardContext()
 
   return (
     <Box className="analytics-page" sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -135,90 +95,149 @@ export function AnalyticsPage() {
 
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, lg: 6 }}>
-          <PhasorMagnitudeChart pmus={pmus} kind="voltage" alignedBatches={dashboard.alignedBatches} />
+          <PhasorMagnitudeChart pmus={pmus} kind="voltage" />
         </Grid>
         <Grid size={{ xs: 12, lg: 6 }}>
-          <PhasorMagnitudeChart pmus={pmus} kind="current" alignedBatches={dashboard.alignedBatches} />
+          <PhasorMagnitudeChart pmus={pmus} kind="current" />
         </Grid>
       </Grid>
 
-      <Box
-        sx={{
-          p: { xs: 1.5, sm: 2 },
-          borderRadius: 2,
-          border: '1px solid',
-          borderColor: 'divider',
-          bgcolor: 'background.paper',
-        }}
-      >
-        <Box sx={{ mb: 2 }}>
-          <Typography variant="h6" component="h3">
-            Phasor diagrams
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-            Same aligned tick as Overview / Analytics charts
-            {diagramBatch ? ` · ${formatTSMs(diagramBatch.ts)}` : ''}
-          </Typography>
-        </Box>
-
-        <Grid container spacing={2}>
-          <Grid size={{ xs: 12, lg: 6 }}>
-            <Stack spacing={1}>
-              <FormControl size="small" sx={{ maxWidth: 220, alignSelf: { xs: 'stretch', sm: 'flex-end' } }}>
-                <InputLabel id="voltage-phase-filter-label">Voltage channels</InputLabel>
-                <Select
-                  labelId="voltage-phase-filter-label"
-                  label="Voltage channels"
-                  value={voltagePhase}
-                  onChange={(e) => setVoltagePhase(e.target.value as PhaseFilter)}
-                >
-                  {V_FILTERS.map((f) => (
-                    <MenuItem key={f} value={f}>
-                      {f === 'all' ? 'All V' : f}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-              <PhasorDiagram
-                kind="voltage"
-                vectors={voltageVectors}
-                emptyMessage={emptyHint}
-                sampleTs={diagramBatch?.ts}
-                missing={diagramMissing}
-              />
-            </Stack>
-          </Grid>
-          <Grid size={{ xs: 12, lg: 6 }}>
-            <Stack spacing={1}>
-              <FormControl size="small" sx={{ maxWidth: 220, alignSelf: { xs: 'stretch', sm: 'flex-end' } }}>
-                <InputLabel id="current-phase-filter-label">Current channels</InputLabel>
-                <Select
-                  labelId="current-phase-filter-label"
-                  label="Current channels"
-                  value={currentPhase}
-                  onChange={(e) => setCurrentPhase(e.target.value as PhaseFilter)}
-                >
-                  {I_FILTERS.map((f) => (
-                    <MenuItem key={f} value={f}>
-                      {f === 'all' ? 'All I' : f}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-              <PhasorDiagram
-                kind="current"
-                vectors={currentVectors}
-                emptyMessage={emptyHint}
-                sampleTs={diagramBatch?.ts}
-                missing={diagramMissing}
-              />
-            </Stack>
-          </Grid>
-        </Grid>
-      </Box>
-
-      <AngleDiffChart pmus={pmus} alignedBatches={dashboard.alignedBatches} />
+      <AlignedPhasorSection pmus={pmus} />
+      <AngleDiffChart pmus={pmus} />
       <OperatorRecommendations recommendations={analyticsRecs} />
     </Box>
+  )
+}
+
+function AlignedPhasorSection({ pmus }: { pmus: PMUWithMeta[] }) {
+  const onlinePMUs = useMemo(() => pmus.filter((p) => p.connected), [pmus])
+  const [voltagePhase, setVoltagePhase] = useState<PhaseFilter>('all')
+  const [currentPhase, setCurrentPhase] = useState<PhaseFilter>('all')
+
+  return (
+    <Box
+      sx={{
+        p: { xs: 1.5, sm: 2 },
+        borderRadius: 2,
+        border: '1px solid',
+        borderColor: 'divider',
+        bgcolor: 'background.paper',
+      }}
+    >
+      <Box sx={{ mb: 2 }}>
+        <Typography variant="h6" component="h3">
+          Phasor diagrams
+        </Typography>
+        <DiagramTime onlineNames={onlinePMUs.map((p) => p.name)} />
+      </Box>
+
+      <Grid container spacing={2}>
+        <Grid size={{ xs: 12, lg: 6 }}>
+          <Stack spacing={1}>
+            <FormControl size="small" sx={{ maxWidth: 220, alignSelf: { xs: 'stretch', sm: 'flex-end' } }}>
+              <InputLabel id="voltage-phase-filter-label">Voltage channels</InputLabel>
+              <Select
+                labelId="voltage-phase-filter-label"
+                label="Voltage channels"
+                value={voltagePhase}
+                onChange={(e) => setVoltagePhase(e.target.value as PhaseFilter)}
+              >
+                {V_FILTERS.map((f) => (
+                  <MenuItem key={f} value={f}>
+                    {f === 'all' ? 'All V' : f}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <LivePhasorDiagram
+              pmus={pmus}
+              onlinePMUs={onlinePMUs}
+              kind="voltage"
+              phase={voltagePhase}
+            />
+          </Stack>
+        </Grid>
+        <Grid size={{ xs: 12, lg: 6 }}>
+          <Stack spacing={1}>
+            <FormControl size="small" sx={{ maxWidth: 220, alignSelf: { xs: 'stretch', sm: 'flex-end' } }}>
+              <InputLabel id="current-phase-filter-label">Current channels</InputLabel>
+              <Select
+                labelId="current-phase-filter-label"
+                label="Current channels"
+                value={currentPhase}
+                onChange={(e) => setCurrentPhase(e.target.value as PhaseFilter)}
+              >
+                {I_FILTERS.map((f) => (
+                  <MenuItem key={f} value={f}>
+                    {f === 'all' ? 'All I' : f}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <LivePhasorDiagram
+              pmus={pmus}
+              onlinePMUs={onlinePMUs}
+              kind="current"
+              phase={currentPhase}
+            />
+          </Stack>
+        </Grid>
+      </Grid>
+    </Box>
+  )
+}
+
+function DiagramTime({ onlineNames }: { onlineNames: string[] }) {
+  const batches = useAlignedBatchesEachSecond()
+  const batch = latestAlignedBatch(batches, onlineNames)
+  return (
+    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+      Same aligned tick as the charts
+      {batch ? ` · ${formatTSMs(alignedChartTs(batch))}` : ''}
+    </Typography>
+  )
+}
+
+function LivePhasorDiagram({
+  pmus,
+  onlinePMUs,
+  kind,
+  phase,
+}: {
+  pmus: PMUWithMeta[]
+  onlinePMUs: PMUWithMeta[]
+  kind: 'voltage' | 'current'
+  phase: PhaseFilter
+}) {
+  const batches = useAlignedBatchesEachSecond()
+  const names = useMemo(() => onlinePMUs.map((p) => p.name), [onlinePMUs])
+  const diagramBatch = useMemo(
+    () => latestAlignedBatch(batches, names),
+    [batches, names],
+  )
+  const missing = useMemo(() => {
+    if (!diagramBatch) return []
+    return onlinePMUs
+      .filter((p) => !diagramBatch.points?.[p.name])
+      .map((p) => ({ name: p.name, label: chartLabel(p) }))
+  }, [diagramBatch, onlinePMUs])
+  const vectors = useMemo(
+    () => buildVectors(onlinePMUs, pmus, kind, phase, batches),
+    [onlinePMUs, pmus, kind, phase, batches],
+  )
+  const emptyHint = !onlinePMUs.length
+    ? 'No online PMUs — connect a stream to plot live phasors.'
+    : !diagramBatch
+      ? 'Waiting for aligned samples…'
+      : undefined
+
+  return (
+    <PhasorDiagram
+      kind={kind}
+      vectors={vectors}
+      emptyMessage={emptyHint}
+      sampleTs={diagramBatch ? alignedChartTs(diagramBatch) : undefined}
+      missing={missing}
+    />
   )
 }

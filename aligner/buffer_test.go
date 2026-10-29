@@ -153,7 +153,7 @@ func TestBankSetCapacityTrims(t *testing.T) {
 	if bank.SetCapacity(1) != MinCapacity {
 		t.Fatalf("below min should clamp to %d", MinCapacity)
 	}
-	if bank.SetCapacity(MaxCapacity + 50) != MaxCapacity {
+	if bank.SetCapacity(MaxCapacity+50) != MaxCapacity {
 		t.Fatalf("above max should clamp to %d", MaxCapacity)
 	}
 }
@@ -171,7 +171,27 @@ func TestTakeTickWindowNearest(t *testing.T) {
 		t.Fatal("expected pmu-t")
 	}
 	present2, missing2 := bank.TakeTick(us(9159))
-	if len(present2) != 0 || len(missing2) != 1 {
-		t.Fatalf("after take: present=%d missing=%d", len(present2), len(missing2))
+	if len(present2) != 1 || len(missing2) != 0 {
+		t.Fatalf("window keeps the sample present=%d missing=%d", len(present2), len(missing2))
+	}
+	present3, missing3 := bank.TakeTick(us(9159))
+	if len(present3) != 0 || len(missing3) != 1 {
+		t.Fatalf("exact take removes it present=%d missing=%d", len(present3), len(missing3))
+	}
+}
+
+func TestTakeTickWindowHoldsSlowPMU(t *testing.T) {
+	parser.SetProfile("slow-hold", parser.Profile{DataRate: 50})
+	bank := NewBank(50)
+	bank.SetExpected([]string{"slow-hold"})
+	bank.Ingest(makeReading("slow-hold", 1000))
+
+	present, missing := bank.TakeTickWindow(us(1005), us(2))
+	if len(present) != 1 || len(missing) != 0 {
+		t.Fatalf("held sample present=%d missing=%d", len(present), len(missing))
+	}
+	present, missing = bank.TakeTickWindow(us(1020), us(2))
+	if len(present) != 0 || len(missing) != 1 {
+		t.Fatalf("sample due present=%d missing=%d", len(present), len(missing))
 	}
 }

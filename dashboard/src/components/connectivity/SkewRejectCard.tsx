@@ -26,7 +26,7 @@ export function SkewRejectCard({ pmus }: Props) {
         <ul className="skew-reject-card__list">
           {skewed.map((p) => (
             <li key={p.name}>
-              <span className="mono">{p.meta?.station || p.name}</span>
+              <span className="mono">{p.meta?.substation || p.name}</span>
               <span className="mono">{p.skewRejects}</span>
               <span className="skew-reject-card__reason" title={p.lastQualityReject}>
                 {p.lastQualityReject || 'timestamp skew'}

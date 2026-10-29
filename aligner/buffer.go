@@ -6,6 +6,7 @@ package aligner
 // The publisher later asks: "what does this PMU have at time T?"
 
 import (
+	"math"
 	"sort"
 	"sync"
 	"time"
@@ -109,8 +110,63 @@ func (b *pmuBuffer) newestTS() (int64, bool) {
 	return max, true
 }
 
+// holdNearest returns the closest sample inside ±halfWindow, or the latest
+// sample still inside this PMU's own period. It does not remove the sample,
+// so a slower PMU can fill the fast steps until its next frame is due.
+func (b *pmuBuffer) holdNearest(target, halfWindow, holdUs int64) (parser.Reading, bool) {
+	if b == nil || len(b.byTS) == 0 {
+		return parser.Reading{}, false
+	}
+	if halfWindow < 0 {
+		halfWindow = 0
+	}
+	if holdUs < 0 {
+		holdUs = 0
+	}
+	var bestTS, bestDist int64
+	found := false
+	for ts := range b.byTS {
+		d := ts - target
+		if d < 0 {
+			d = -d
+		}
+		inWindow := d <= halfWindow
+		held := ts <= target && d < holdUs
+		if !inWindow && !held {
+			continue
+		}
+		if !found || d < bestDist || (d == bestDist && ts < bestTS) {
+			bestTS, bestDist, found = ts, d, true
+		}
+	}
+	if !found {
+		return parser.Reading{}, false
+	}
+	return b.byTS[bestTS], true
+}
+
+// pmuPeriodUs is this PMU's own CFG frame period. 0 means the rate is unknown.
+func pmuPeriodUs(name string) int64 {
+	prof, ok := parser.GetProfile(name)
+	if !ok || prof.DataRate == 0 {
+		return 0
+	}
+	fps := float64(prof.DataRate)
+	if prof.DataRate < 0 {
+		fps = 1.0 / float64(-prof.DataRate)
+	}
+	if fps < 1 {
+		return 0
+	}
+	us := int64(math.Round(1_000_000.0 / fps))
+	if us < 1 {
+		return 1
+	}
+	return us
+}
+
 // takeNearest removes and returns the sample at target, or the closest sample
-// within ±halfWindow ms (ties → earlier timestamp). halfWindow < 0 means exact only.
+// within ±halfWindow (ties → earlier timestamp). halfWindow < 0 means exact only.
 func (b *pmuBuffer) takeNearest(target, halfWindow int64) (parser.Reading, bool) {
 	if b == nil || len(b.byTS) == 0 {
 		return parser.Reading{}, false
@@ -484,7 +540,21 @@ func (b *Bank) TakeTickWindow(ts, halfWindow int64) (present map[string]parser.R
 			missing = append(missing, name)
 			continue
 		}
-		if r, ok := buf.takeNearest(ts, halfWindow); ok {
+		if halfWindow <= 0 {
+			if r, ok := buf.takeNearest(ts, 0); ok {
+				present[name] = r
+				continue
+			}
+			missing = append(missing, name)
+			continue
+		}
+		halfOwn := halfWindow
+		hold := halfWindow * 2
+		if own := pmuPeriodUs(name); own > hold {
+			halfOwn = own / 2
+			hold = own
+		}
+		if r, ok := buf.holdNearest(ts, halfOwn, hold); ok {
 			present[name] = r
 			continue
 		}
@@ -529,8 +599,10 @@ func (b *Bank) PruneBefore(ts int64) {
 		if buf == nil {
 			continue
 		}
+		hold := pmuPeriodUs(name)
+		cutoff := ts - hold
 		for k := range buf.byTS {
-			if k < ts {
+			if k < cutoff {
 				delete(buf.byTS, k)
 			}
 		}

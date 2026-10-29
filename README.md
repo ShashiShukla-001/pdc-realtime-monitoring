@@ -20,6 +20,8 @@ It connects to one or more PMUs (or lab simulators), learns each device’s chan
 - Stores the PMU address book in Postgres/Timescale
 - Optionally writes history when `ENABLE_HISTORY=true`
 
+Live samples go from the receiver to the aligner and the dashboard. There is no Kafka, Redis, or other message bus. History, when turned on, writes straight to Timescale.
+
 **Not included yet:** authentication on the APIs, TLS termination in-app, multi-instance HA. Treat local ports as lab/dev surfaces unless you put them behind your own network controls.
 
 ---
@@ -94,8 +96,8 @@ PMUs / simulators (C37.118)
 ### 1. Clone
 
 ```bash
-git clone https://github.com/Kashish-Shukla18/new_pdc.git
-cd new_pdc
+git clone https://github.com/ShashiShukla-001/pdc-realtime-monitoring.git
+cd pdc-realtime-monitoring
 ```
 
 ### 2. Environment
@@ -122,6 +124,7 @@ PMU_TIMESTAMP_TZ=UTC
 Notes:
 
 - `.env` is gitignored. Real OS environment variables override `.env`.
+- `POSTGRES_DSN` is required. The program has no built-in database address or password.
 - Local Docker publishes Timescale on **host port 5433**.
 - Server compose (`docker-compose.yaml`) uses **127.0.0.1:5432** — set `POSTGRES_DSN` accordingly and provide `POSTGRES_PASSWORD`.
 
@@ -214,11 +217,12 @@ Flags (optional):
 
 1. Open **Device Inventory** and add a PMU (IP, port, protocol).
 2. Connect — the PDC handshakes, learns CFG-2, and starts DATA.
-3. Use **Overview** / **Analytics** for live and time-aligned views.
-4. Use **Connectivity** when latency or loss looks wrong.
-5. Use **Data Frames** to inspect CFG/DATA decode for a stream.
+3. **Overview**, **Analytics** trends, the angle-difference chart, and **Data Frames** frequency use aligned ticks and redraw once a second.
+4. Phasor diagrams use the newest aligned tick and refresh once a second.
+5. **Connectivity** shows path delay and refreshes once a second.
+6. Use **Data Frames** to inspect CFG/DATA decode for a stream.
 
-Measurement timezone defaults to `PMU_TIMESTAMP_TZ`. Per-device `timestamp_tz` is stored on the address-book row when set via the API.
+Measurement timezone defaults to `PMU_TIMESTAMP_TZ`. Per-device `timestamp_tz` is stored on the address-book row when set via the API. History is optional via `ENABLE_HISTORY`.
 
 ---
 
