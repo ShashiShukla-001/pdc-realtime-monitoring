@@ -166,7 +166,7 @@ export const PAGE_DOCS: PageDoc[] = [
       'Per-stream quality plus measured pipeline hop times so you can see which function is slow.',
     dataSources: [
       'Live frame counts, quality rejects, FPS',
-      'Per-stage wall clocks: TCP dial, handshake, TCP read, parse, quality, dashboard record, Redis/Postgres (when enabled), /conversation/state JSON, browser poll',
+      'Per-stage wall clocks: TCP dial, handshake, TCP read, parse, quality, dashboard record, Timescale/Postgres (when history is on), /conversation/state JSON, browser poll',
     ],
     sections: [
       {

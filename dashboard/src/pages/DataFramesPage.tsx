@@ -1,10 +1,8 @@
-import { useMemo } from 'react'
 import { FreqChart } from '../components/dataframes/FreqChart'
 import { useDashboardContext } from '../context/DashboardContext'
 import { round } from '../utils/format'
 import { displayPhasors, formatPhasorCfgList } from '../utils/phasorLabels'
 import { displayFps } from '../utils/pmu'
-import { trendFromAlignedBatches } from '../utils/alignedChart'
 
 function hexWord(n: number | undefined, width = 4) {
   return `0x${((n ?? 0) >>> 0).toString(16).toUpperCase().padStart(width, '0')}`
@@ -37,7 +35,6 @@ function statFlags(detail: {
 export function DataFramesPage() {
   const {
     enabledPmus: pmus,
-    dashboard,
     selectedFramePMU,
     selectedFramePMUName,
     setSelectedFramePMUName,
@@ -45,11 +42,6 @@ export function DataFramesPage() {
     setIsPaused,
     frameLines,
   } = useDashboardContext()
-
-  const frameTrendHistory = useMemo(
-    () => trendFromAlignedBatches(dashboard.alignedBatches, selectedFramePMUName),
-    [dashboard.alignedBatches, selectedFramePMUName],
-  )
 
   if (!selectedFramePMU) return null
 
@@ -151,7 +143,7 @@ export function DataFramesPage() {
       </section>
 
       <section className="charts-grid compact-gap">
-        <FreqChart data={frameTrendHistory} fnomHz={fnom} />
+        <FreqChart pmuName={selectedFramePMUName} fnomHz={fnom} />
 
         <article className="panel">
           <div className="panel-head">

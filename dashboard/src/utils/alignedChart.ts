@@ -21,24 +21,22 @@ export type AlignedPhasorRow = {
 }
 
 /**
- * Newest aligned tick for diagrams / snapshots.
- * Always the latest tick (partials included) so missing PMUs match frequency-chart gaps.
+ * Chart position for one aligned tick. Sub-millisecond ticks stay apart.
+ * Labels still format this as a clock time.
+ */
+export function alignedChartTs(batch: AlignedBatch): number {
+  return typeof batch.tsUs === 'number' && batch.tsUs > 0 ? batch.tsUs / 1000 : batch.ts
+}
+
+/**
+ * Newest aligned tick, even when every online PMU is missing on it.
  */
 export function latestAlignedBatch(
   batches: AlignedBatch[] | undefined,
-  preferPmuNames?: string[],
+  _preferPmuNames?: string[],
 ): AlignedBatch | undefined {
   if (!batches?.length) return undefined
-  const names = preferPmuNames?.filter(Boolean) ?? []
-  const hasAny = (b: AlignedBatch) => {
-    if (!names.length) return Object.keys(b.points ?? {}).length > 0
-    return names.some((n) => Boolean(b.points?.[n]))
-  }
-  for (let i = batches.length - 1; i >= 0; i--) {
-    const b = batches[i]
-    if (hasAny(b)) return b
-  }
-  return undefined
+  return batches[batches.length - 1]
 }
 
 /** VA–IC mag/angle from one aligned point (same fields as Overview / Analytics trends). */
@@ -63,11 +61,11 @@ export function rowsFromAlignedBatches(
   batches: AlignedBatch[] | undefined,
   pmuNames: string[],
   window = ALIGNED_CHART_WINDOW,
-): Record<string, number | undefined>[] {
+): ({ ts: number } & Record<string, number | undefined>)[] {
   if (!batches?.length || !pmuNames.length) return []
 
   return batches.slice(-window).map((batch) => {
-    const row: Record<string, number | undefined> = { ts: batch.ts }
+    const row: { ts: number } & Record<string, number | undefined> = { ts: alignedChartTs(batch) }
     for (const name of pmuNames) {
       const key = pmuKey(name)
       const point = batch.points?.[name]
@@ -98,11 +96,20 @@ export function trendFromAlignedBatches(
   const out: TrendPoint[] = []
   for (const batch of batches.slice(-window)) {
     const point = batch.points?.[pmuName]
-    if (!point) continue
+    if (!point) {
+      out.push({
+        ts: alignedChartTs(batch),
+        frequency: Number.NaN,
+        mw: Number.NaN,
+        mvar: Number.NaN,
+        rocof: Number.NaN,
+      })
+      continue
+    }
     const analogs = point.analogs ?? {}
     const analogVals = Object.values(analogs)
     out.push({
-      ts: batch.ts,
+      ts: alignedChartTs(batch),
       frequency: point.frequency,
       frequencyDev: point.frequencyDev ?? 0,
       rocof: point.rocof ?? 0,

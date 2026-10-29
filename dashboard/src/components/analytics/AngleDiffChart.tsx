@@ -15,25 +15,14 @@ import {
   Stack,
   Typography,
 } from '@mui/material'
-import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
-import type { AngleHistoryPoint, AnglePair } from '../../types/analytics'
-import type { AlignedBatch, AlignedPoint, PMUWithMeta } from '../../types/dashboard'
+import { LiveLineChart } from '../charts/LiveLineChart'
+import { useAlignedBatchesEachSecond } from '../../hooks/useAlignedBatches'
+import { alignedChartTs } from '../../utils/alignedChart'
+import type { AnglePair } from '../../types/analytics'
+import type { AlignedPoint, PMUWithMeta } from '../../types/dashboard'
 import { anglePairColors, shortPairLabel } from '../../utils/analytics'
 import { ExternalChartLegend, useSeriesVisibility } from '../../utils/chartLegend'
-import {
-  CHART_AXIS_TICK,
-  CHART_GRID_STROKE,
-  ChartSeriesTooltip,
-} from '../../utils/chartTooltip'
-import { formatTS, formatTSMs, round } from '../../utils/format'
+import { round } from '../../utils/format'
 import { chartLabel, pmuKey } from '../../utils/pmu'
 
 type AngleChannel = 'va' | 'vb' | 'vc' | 'ia' | 'ib' | 'ic'
@@ -58,7 +47,6 @@ const ANGLE_FIELD: Record<AngleChannel, keyof AlignedPoint> = {
 
 type Props = {
   pmus: PMUWithMeta[]
-  alignedBatches?: AlignedBatch[]
 }
 
 function wrapDelta(deg: number) {
@@ -85,7 +73,7 @@ function buildPairs(selected: PMUWithMeta[]): AnglePair[] {
   return pairs
 }
 
-export function AngleDiffChart({ pmus, alignedBatches = [] }: Props) {
+export function AngleDiffChart({ pmus }: Props) {
   const onlineNames = useMemo(
     () => pmus.filter((p) => p.connected).map((p) => p.name),
     [pmus],
@@ -111,32 +99,7 @@ export function AngleDiffChart({ pmus, alignedBatches = [] }: Props) {
   const pairs = useMemo(() => buildPairs(selectedPMUs), [selectedPMUs])
   const coloredPairs = useMemo(() => anglePairColors(pairs), [pairs])
   const seriesKeys = useMemo(() => coloredPairs.map((p) => p.key), [coloredPairs])
-  const { hidden, toggle, isHidden } = useSeriesVisibility(seriesKeys)
-
-  const history = useMemo(() => {
-    if (!pairs.length || !alignedBatches.length) return [] as AngleHistoryPoint[]
-    const field = ANGLE_FIELD[channel]
-
-    return alignedBatches.slice(-60).map((batch) => {
-      const point: AngleHistoryPoint = {
-        ts: batch.ts,
-        label: new Date(batch.ts).toLocaleTimeString(),
-      }
-      for (const pair of pairs) {
-        const [aKey, bKey] = pair.key.split('__')
-        const aName = pmus.find((p) => pmuKey(p.name) === aKey)?.name
-        const bName = pmus.find((p) => pmuKey(p.name) === bKey)?.name
-        const a = aName ? batch.points?.[aName] : undefined
-        const b = bName ? batch.points?.[bName] : undefined
-        const aAng = a ? a[field] : undefined
-        const bAng = b ? b[field] : undefined
-        if (typeof aAng === 'number' && typeof bAng === 'number') {
-          point[pair.key] = round(wrapDelta(aAng - bAng), 2)
-        }
-      }
-      return point
-    })
-  }, [alignedBatches, pairs, channel, pmus])
+  const { hidden, toggle } = useSeriesVisibility(seriesKeys)
 
   const channelLabel = CHANNELS.find((c) => c.key === channel)?.label ?? 'VA'
 
@@ -233,62 +196,16 @@ export function AngleDiffChart({ pmus, alignedBatches = [] }: Props) {
             <Typography sx={{ p: 2, color: 'text.secondary' }}>
               Angle Δ needs at least two selected PMUs.
             </Typography>
-          ) : !history.length ? (
-            <Typography sx={{ p: 2, color: 'text.secondary' }}>
-              Waiting for aligned {channelLabel} angle ticks…
-            </Typography>
           ) : (
             <>
-              <Box sx={{ width: '100%', height: { xs: 240, sm: 280 } }}>
-                <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
-                  <LineChart data={history} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
-                    <CartesianGrid stroke={CHART_GRID_STROKE} strokeDasharray="3 3" />
-                    <XAxis
-                      dataKey="ts"
-                      tickFormatter={formatTS}
-                      tick={CHART_AXIS_TICK}
-                      stroke="#94a3b8"
-                      minTickGap={28}
-                      interval="preserveStartEnd"
-                    />
-                    <YAxis
-                      tick={CHART_AXIS_TICK}
-                      domain={[0, 'auto']}
-                      tickFormatter={(value) => `${value}°`}
-                      stroke="#94a3b8"
-                      width={48}
-                    />
-                    <Tooltip
-                      content={(props) => (
-                        <ChartSeriesTooltip
-                          {...props}
-                          labelFormatter={(value) => formatTSMs(Number(value))}
-                          formatter={(value, name) => [
-                            `${Number(value ?? 0).toFixed(2)}°`,
-                            String(name),
-                          ]}
-                        />
-                      )}
-                    />
-                    {coloredPairs.map((pair) =>
-                      isHidden(pair.key) ? null : (
-                        <Line
-                          key={pair.key}
-                          type="linear"
-                          dataKey={pair.key}
-                          name={pair.name}
-                          stroke={pair.color}
-                          strokeWidth={2.1}
-                          strokeOpacity={0.95}
-                          dot={false}
-                          isAnimationActive={false}
-                          connectNulls={false}
-                        />
-                      ),
-                    )}
-                  </LineChart>
-                </ResponsiveContainer>
-              </Box>
+              <AngleDiffLines
+                pmus={pmus}
+                pairs={pairs}
+                coloredPairs={coloredPairs}
+                channel={channel}
+                channelLabel={channelLabel}
+                hidden={hidden}
+              />
               <ExternalChartLegend
                 items={legendItems}
                 hidden={hidden}
@@ -300,5 +217,65 @@ export function AngleDiffChart({ pmus, alignedBatches = [] }: Props) {
         </Box>
       </CardContent>
     </Card>
+  )
+}
+
+function AngleDiffLines({
+  pmus,
+  pairs,
+  coloredPairs,
+  channel,
+  channelLabel,
+  hidden,
+}: {
+  pmus: PMUWithMeta[]
+  pairs: AnglePair[]
+  coloredPairs: { key: string; name: string; color: string }[]
+  channel: AngleChannel
+  channelLabel: string
+  hidden: Set<string>
+}) {
+  const batches = useAlignedBatchesEachSecond()
+  const history = useMemo(() => {
+    if (!pairs.length || !batches.length) return []
+    const field = ANGLE_FIELD[channel]
+    return batches.map((batch) => {
+      const point: { ts: number } & Record<string, number | undefined> = { ts: alignedChartTs(batch) }
+      for (const pair of pairs) {
+        const [aKey, bKey] = pair.key.split('__')
+        const aName = pmus.find((p) => pmuKey(p.name) === aKey)?.name
+        const bName = pmus.find((p) => pmuKey(p.name) === bKey)?.name
+        const a = aName ? batch.points?.[aName] : undefined
+        const b = bName ? batch.points?.[bName] : undefined
+        const aAng = a ? a[field] : undefined
+        const bAng = b ? b[field] : undefined
+        if (typeof aAng === 'number' && typeof bAng === 'number') {
+          point[pair.key] = round(wrapDelta(aAng - bAng), 2)
+        }
+      }
+      return point
+    })
+  }, [batches, pairs, channel, pmus])
+
+  if (!history.length) {
+    return (
+      <Typography sx={{ p: 2, color: 'text.secondary' }}>
+        Waiting for aligned {channelLabel} angle ticks…
+      </Typography>
+    )
+  }
+
+  return (
+    <Box sx={{ width: '100%', height: { xs: 240, sm: 280 } }}>
+      <LiveLineChart
+        rows={history}
+        series={coloredPairs
+          .filter((pair) => !hidden.has(pair.key))
+          .map((pair) => ({ key: pair.key, name: pair.name, color: pair.color }))}
+        yDigits={2}
+        unit="°"
+        yBounds={(_min, max) => [0, max > 0 ? max : 1]}
+      />
+    </Box>
   )
 }

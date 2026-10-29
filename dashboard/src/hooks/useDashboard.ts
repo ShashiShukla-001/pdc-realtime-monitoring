@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { defaultNewPMU, emptyDashboardState, HELP_SECTIONS } from '../constants'
-import type { AngleHistoryPoint } from '../types/analytics'
 import {
   computeAnalyticsKpis,
   computeAnalyticsRecs,
@@ -15,6 +14,7 @@ import { useArrivalSpreadHistory } from './useArrivalSpreadHistory'
 import { useCycleLatencyHistory } from './useCycleLatencyHistory'
 import { useRttHistory } from './useRttHistory'
 import type {
+  AlignedBatch,
   ConversationEvent,
   DashboardState,
   EditPMUForm,
@@ -26,6 +26,7 @@ import type {
   TabId,
   UiTiming,
 } from '../types/dashboard'
+import { pushAligned, replaceAligned, resetAligned } from '../utils/alignedStore'
 import { ageText, round } from '../utils/format'
 import {
   availabilityOf,
@@ -34,7 +35,6 @@ import {
   endpointIdentity,
   metaForDB,
   packetLossOf,
-  pmuKey,
   toneFromStatus,
 } from '../utils/pmu'
 
@@ -45,6 +45,8 @@ export function useDashboard() {
   const [events, setEvents] = useState<ConversationEvent[]>([])
   const [streamOnline, setStreamOnline] = useState(false)
   const [isPaused, setIsPaused] = useState(false)
+  /** True while /conversation/aligned is delivering chart ticks. */
+  const alignedLiveRef = useRef(false)
   const [activeTab, setActiveTab] = useState<TabId>('overview')
   const [selectedPMUName, setSelectedPMUName] = useState('')
   const [selectedFramePMUName, setSelectedFramePMUName] = useState('')
@@ -353,13 +355,17 @@ export function useDashboard() {
 
     const refreshState = async () => {
       const t0 = performance.now()
+      const live = alignedLiveRef.current
       try {
-        const stateRes = await fetch('/conversation/state')
+        const stateRes = await fetch(live ? '/conversation/state?aligned=0' : '/conversation/state')
         const tNet = performance.now()
         if (stateRes.ok) {
           const data = (await stateRes.json()) as DashboardState
           const tJson = performance.now()
-          setDashboard(data)
+          if (!alignedLiveRef.current) replaceAligned(data.alignedBatches)
+          setDashboard((prev) =>
+            alignedLiveRef.current ? { ...data, alignedBatches: prev.alignedBatches } : data,
+          )
           setUiTiming({
             fetchMs: tNet - t0,
             jsonMs: tJson - tNet,
@@ -418,6 +424,41 @@ export function useDashboard() {
       }
     }
     return () => es.close()
+  }, [isPaused])
+
+  // Aligned chart ticks. Each sample is stored immediately and the charts
+  // draw it on the next animation frame. This does not rebuild the page state.
+  useEffect(() => {
+    if (isPaused) {
+      alignedLiveRef.current = false
+      return
+    }
+
+    const es = new EventSource('/conversation/aligned')
+    es.onopen = () => {
+      alignedLiveRef.current = true
+    }
+    es.onerror = () => {
+      alignedLiveRef.current = false
+    }
+    es.onmessage = (evt) => {
+      try {
+        const msg = JSON.parse(evt.data) as AlignedBatch & { reset?: boolean }
+        if (msg.reset) {
+          resetAligned()
+          return
+        }
+        if (typeof msg.ts !== 'number') return
+        pushAligned(msg)
+      } catch {
+        // Ignore malformed ticks.
+      }
+    }
+
+    return () => {
+      alignedLiveRef.current = false
+      es.close()
+    }
   }, [isPaused])
 
   const pmus = useMemo<PMUWithMeta[]>(() => {
@@ -612,34 +653,6 @@ export function useDashboard() {
     [enabledPmus, anglePairs, analyticsRecs],
   )
 
-  const angleHistory = useMemo(() => {
-    const batches = dashboard.alignedBatches ?? []
-    if (!chartAnglePairs.length || !batches.length) return []
-
-    const wrap = (deg: number) => {
-      const raw = Math.abs(deg)
-      return raw > 180 ? 360 - raw : raw
-    }
-
-    return batches.slice(-60).map((batch) => {
-      const point: AngleHistoryPoint = {
-        ts: batch.ts,
-        label: new Date(batch.ts).toLocaleTimeString(),
-      }
-      for (const pair of chartAnglePairs) {
-        const [aKey, bKey] = pair.key.split('__')
-        const aName = pmus.find((p) => pmuKey(p.name) === aKey)?.name
-        const bName = pmus.find((p) => pmuKey(p.name) === bKey)?.name
-        const a = aName ? batch.points?.[aName] : undefined
-        const b = bName ? batch.points?.[bName] : undefined
-        if (a && b && typeof a.vaAngle === 'number' && typeof b.vaAngle === 'number') {
-          point[pair.key] = round(wrap(a.vaAngle - b.vaAngle), 2)
-        }
-      }
-      return point
-    })
-  }, [dashboard.alignedBatches, chartAnglePairs, pmus])
-
   const filteredHelp = HELP_SECTIONS.filter((item) => {
     if (!helpQuery.trim()) return true
     return `${item.title} ${item.content}`.toLowerCase().includes(helpQuery.toLowerCase())
@@ -736,7 +749,6 @@ export function useDashboard() {
     spreadLatest,
     anglePairs,
     chartAnglePairs,
-    angleHistory,
     analyticsKpis,
     analyticsRecs,
     filteredHelp,

@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -155,12 +156,10 @@ func reconnectInterval() time.Duration {
 	return 5 * time.Second
 }
 
-// DSN is the Postgres connection string (compose maps host 5433 → container 5432).
+// DSN is the Postgres connection string from POSTGRES_DSN.
+// An empty string means the setting is missing. There is no built-in address or password.
 func DSN() string {
-	if v := os.Getenv("POSTGRES_DSN"); v != "" {
-		return v
-	}
-	return "postgres://pdc:pdc@127.0.0.1:5433/pdc?sslmode=disable"
+	return strings.TrimSpace(os.Getenv("POSTGRES_DSN"))
 }
 
 // NewStore opens the address book. It never fails closed: if Postgres is down,
@@ -209,10 +208,15 @@ func (s *Store) tryConnect() error {
 		return nil
 	}
 
+	dsn := DSN()
+	if dsn == "" {
+		return fmt.Errorf("POSTGRES_DSN is not set")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	pool, err := pgxpool.New(ctx, DSN())
+	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}

@@ -7,32 +7,16 @@ import {
   Signal,
   X,
 } from 'lucide-react'
-import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  ReferenceLine,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
+import { CHART_COLORS, INDIA_CENTER } from '../constants'
+import { LiveLineChart } from '../components/charts/LiveLineChart'
+import { useDashboardContext } from '../context/DashboardContext'
+import { useAlignedBatchesEachSecond } from '../hooks/useAlignedBatches'
 import 'leaflet/dist/leaflet.css'
 import { MapContainer, TileLayer, Marker, Popup, Tooltip as LeafletTooltip, useMap } from 'react-leaflet'
-import { CHART_COLORS, INDIA_CENTER } from '../constants'
-import { useDashboardContext } from '../context/DashboardContext'
-import {
-  ExternalChartLegend,
-  useSeriesVisibility,
-} from '../utils/chartLegend'
-import {
-  CHART_AXIS_TICK,
-  CHART_GRID_STROKE,
-  ChartSeriesTooltip,
-} from '../utils/chartTooltip'
-import { formatTS, formatTSMs, round } from '../utils/format'
 import { chartLabel, displayFps, packetLossOf, pmuKey } from '../utils/pmu'
-import { rowsFromAlignedBatches, ALIGNED_CHART_WINDOW } from '../utils/alignedChart'
+import { rowsFromAlignedBatches } from '../utils/alignedChart'
+import { ExternalChartLegend, useSeriesVisibility } from '../utils/chartLegend'
+import { round } from '../utils/format'
 
 type FreqMode = 'absolute' | 'deviation'
 
@@ -59,7 +43,6 @@ function MapInvalidateSize() {
 export function OverviewPage() {
   const {
     enabledPmus: pmus,
-    dashboard,
     mapFilter,
     setMapFilter,
     liveAlerts,
@@ -91,16 +74,7 @@ export function OverviewPage() {
     [pmus, selectedStreams],
   )
 
-  // Time-aligned ticks from the PDC aligner (same source as Analytics charts).
-  const chartTrend = useMemo(
-    () =>
-      rowsFromAlignedBatches(
-        dashboard.alignedBatches,
-        plotPMUs.map((p) => p.name),
-        ALIGNED_CHART_WINDOW,
-      ),
-    [dashboard.alignedBatches, plotPMUs],
-  )
+  const plotNames = useMemo(() => plotPMUs.map((pmu) => pmu.name), [plotPMUs])
 
   const fleetFnom = useMemo(() => {
     const fromSelected = plotPMUs.map((p) => p.fnomHz).filter((v): v is number => !!v && v > 0)
@@ -290,8 +264,8 @@ export function OverviewPage() {
               <h3>System Frequency</h3>
               <p>
                 {freqMode === 'absolute'
-                  ? `Absolute Hz · FNOM ${fleetFnom} Hz · time-aligned ticks`
-                  : `Δf from CFG FNOM (${fleetFnom} Hz) · time-aligned ticks`}
+                  ? `Absolute Hz · FNOM ${fleetFnom} Hz · each aligned tick`
+                  : `Δf from CFG FNOM (${fleetFnom} Hz) · each aligned tick`}
               </p>
             </div>
             <div className="panel-tools-inline">
@@ -312,79 +286,30 @@ export function OverviewPage() {
             </div>
           </div>
           <div className="chart-wrap overview-chart">
-            <ResponsiveContainer width="99%" height="100%" minWidth={1} minHeight={1}>
-              <LineChart data={chartTrend} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
-                <CartesianGrid stroke={CHART_GRID_STROKE} strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="ts"
-                  tickFormatter={formatTS}
-                  tick={CHART_AXIS_TICK}
-                  minTickGap={32}
-                  interval="preserveStartEnd"
-                  stroke="#94a3b8"
-                />
-                <YAxis
-                  tick={CHART_AXIS_TICK}
-                  // Keep a readable band so micro-noise is not zoomed into fake "spikes".
-                  domain={
-                    freqMode === 'absolute'
-                      ? [
-                          (min: number) => Math.min(Number.isFinite(min) ? min : fleetFnom, fleetFnom - 0.05),
-                          (max: number) => Math.max(Number.isFinite(max) ? max : fleetFnom, fleetFnom + 0.05),
-                        ]
-                      : [
-                          (min: number) => Math.min(Number.isFinite(min) ? min : 0, -0.05),
-                          (max: number) => Math.max(Number.isFinite(max) ? max : 0, 0.05),
-                        ]
-                  }
-                  scale="linear"
-                  allowDataOverflow={false}
-                  tickFormatter={(v) =>
-                    freqMode === 'absolute'
-                      ? Number(v).toFixed(3)
-                      : Number(v).toFixed(3)
-                  }
-                  width={56}
-                  stroke="#94a3b8"
-                />
-                <Tooltip
-                  content={(props) => (
-                    <ChartSeriesTooltip
-                      {...props}
-                      labelFormatter={(value) => formatTSMs(Number(value))}
-                      formatter={(value, name) => [
-                        `${Number(value ?? 0).toFixed(4)} ${freqMode === 'absolute' ? 'Hz' : 'Hz Δ'}`,
-                        String(name),
-                      ]}
-                    />
-                  )}
-                />
-                {freqMode === 'absolute' ? (
-                  <>
-                    <ReferenceLine y={fleetFnom} stroke="#7dd3a7" strokeDasharray="4 4" label={`FNOM ${fleetFnom}`} />
-                    <ReferenceLine y={fleetFnom + 0.05} stroke="rgba(125,211,167,0.35)" strokeDasharray="2 4" />
-                    <ReferenceLine y={fleetFnom - 0.05} stroke="rgba(125,211,167,0.35)" strokeDasharray="2 4" />
-                  </>
-                ) : (
-                  <ReferenceLine y={0} stroke="#7dd3a7" strokeDasharray="4 4" label="0 Δf" />
-                )}
-                {overviewSeries.map((series) =>
-                  freqVis.isHidden(series.freqKey) ? null : (
-                    <Line
-                      key={`${series.name}-${freqMode}`}
-                      type="linear"
-                      dataKey={series.freqKey}
-                      name={series.name}
-                      stroke={series.color}
-                      dot={false}
-                      strokeWidth={1.75}
-                      connectNulls={false}
-                      isAnimationActive={false}
-                    />
-                  ),
-                )}
-              </LineChart>
-            </ResponsiveContainer>
+            <OverviewLiveLines
+              names={plotNames}
+              series={overviewSeries
+                .filter((series) => !freqVis.hidden.has(series.freqKey))
+                .map((series) => ({ key: series.freqKey, name: series.name, color: series.color }))}
+              yDigits={3}
+              unit="Hz"
+              yBounds={(min, max) =>
+                freqMode === 'absolute'
+                  ? [
+                      Math.min(Number.isFinite(min) ? min : fleetFnom, fleetFnom - 0.05),
+                      Math.max(Number.isFinite(max) ? max : fleetFnom, fleetFnom + 0.05),
+                    ]
+                  : [
+                      Math.min(Number.isFinite(min) ? min : 0, -0.05),
+                      Math.max(Number.isFinite(max) ? max : 0, 0.05),
+                    ]
+              }
+              guides={
+                freqMode === 'absolute'
+                  ? [{ y: fleetFnom, color: '#7dd3a7', label: `FNOM ${fleetFnom}` }]
+                  : [{ y: 0, color: '#7dd3a7', label: '0 Δf' }]
+              }
+            />
           </div>
           <ExternalChartLegend
             items={overviewSeries.map((s) => ({ key: s.freqKey, name: s.name, color: s.color }))}
@@ -401,54 +326,15 @@ export function OverviewPage() {
             </div>
           </div>
           <div className="chart-wrap overview-chart">
-            <ResponsiveContainer width="99%" height="100%" minWidth={1} minHeight={1}>
-              <LineChart data={chartTrend} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
-                <CartesianGrid stroke={CHART_GRID_STROKE} strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="ts"
-                  tickFormatter={formatTS}
-                  tick={CHART_AXIS_TICK}
-                  minTickGap={32}
-                  interval="preserveStartEnd"
-                  stroke="#94a3b8"
-                />
-                <YAxis
-                  tick={CHART_AXIS_TICK}
-                  domain={['auto', 'auto']}
-                  scale="linear"
-                  width={56}
-                  stroke="#94a3b8"
-                />
-                <Tooltip
-                  content={(props) => (
-                    <ChartSeriesTooltip
-                      {...props}
-                      labelFormatter={(value) => formatTSMs(Number(value))}
-                      formatter={(value, name) => [
-                        `${round(Number(value ?? 0), 5)} Hz/s`,
-                        String(name),
-                      ]}
-                    />
-                  )}
-                />
-                <ReferenceLine y={0} stroke="rgba(255,255,255,0.35)" strokeDasharray="4 4" />
-                {overviewSeries.map((series) =>
-                  rocofVis.isHidden(series.rocofKey) ? null : (
-                    <Line
-                      key={series.name}
-                      type="linear"
-                      dataKey={series.rocofKey}
-                      name={series.name}
-                      stroke={series.color}
-                      dot={false}
-                      strokeWidth={1.75}
-                      connectNulls={false}
-                      isAnimationActive={false}
-                    />
-                  ),
-                )}
-              </LineChart>
-            </ResponsiveContainer>
+            <OverviewLiveLines
+              names={plotNames}
+              series={overviewSeries
+                .filter((series) => !rocofVis.hidden.has(series.rocofKey))
+                .map((series) => ({ key: series.rocofKey, name: series.name, color: series.color }))}
+              yDigits={4}
+              unit="Hz/s"
+              guides={[{ y: 0, color: 'rgba(255,255,255,0.35)' }]}
+            />
           </div>
           <ExternalChartLegend
             items={overviewSeries.map((s) => ({ key: s.rocofKey, name: s.name, color: s.color }))}
@@ -547,5 +433,37 @@ export function OverviewPage() {
         </div>
       </section>
     </div>
+  )
+}
+
+function OverviewLiveLines({
+  names,
+  series,
+  yDigits,
+  unit,
+  yBounds,
+  guides,
+}: {
+  names: string[]
+  series: { key: string; name: string; color: string }[]
+  yDigits: number
+  unit: string
+  yBounds?: (min: number, max: number) => [number, number]
+  guides?: { y: number; color: string; label?: string }[]
+}) {
+  const batches = useAlignedBatchesEachSecond()
+  const rows = useMemo(
+    () => rowsFromAlignedBatches(batches, names, batches.length || 1),
+    [batches, names],
+  )
+  return (
+    <LiveLineChart
+      rows={rows}
+      series={series}
+      yDigits={yDigits}
+      unit={unit}
+      yBounds={yBounds}
+      guides={guides}
+    />
   )
 }
