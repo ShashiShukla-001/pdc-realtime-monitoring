@@ -22,7 +22,7 @@ It connects to one or more PMUs (or lab simulators), learns each device’s chan
 
 Live samples go from the receiver to the aligner and the dashboard. There is no Kafka, Redis, or other message bus. History, when turned on, writes straight to Timescale.
 
-**Not included yet:** authentication on the APIs, TLS termination in-app, multi-instance HA. Treat local ports as lab/dev surfaces unless you put them behind your own network controls.
+**Not included yet:** TLS termination in-app, multi-instance HA. The dashboard asks for an email and a password. Treat local ports as lab/dev surfaces unless you put them behind your own network controls.
 
 ---
 

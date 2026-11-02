@@ -113,6 +113,57 @@ var schemaStatements = []string{
 		ON pmu_frame (pmu_id, time DESC)`,
 	`CREATE INDEX IF NOT EXISTS pmu_frame_quality_time_idx
 		ON pmu_frame (quality_ok, time DESC)`,
+
+	`CREATE TABLE IF NOT EXISTS app_role (
+		name TEXT PRIMARY KEY
+	)`,
+	`INSERT INTO app_role (name) VALUES ('viewer'), ('operator'), ('admin'), ('superadmin') ON CONFLICT (name) DO NOTHING`,
+	`CREATE TABLE IF NOT EXISTS app_user (
+		email TEXT PRIMARY KEY,
+		password_hash TEXT NOT NULL,
+		role TEXT NOT NULL REFERENCES app_role(name),
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		created_by TEXT NOT NULL DEFAULT '',
+		is_active BOOLEAN NOT NULL DEFAULT TRUE
+	)`,
+	`CREATE TABLE IF NOT EXISTS app_session (
+		id TEXT PRIMARY KEY,
+		email TEXT NOT NULL REFERENCES app_user(email) ON DELETE CASCADE,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		expires_at TIMESTAMPTZ NOT NULL,
+		last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`,
+	`CREATE INDEX IF NOT EXISTS app_session_expires_idx ON app_session (expires_at)`,
+	`CREATE TABLE IF NOT EXISTS audit_event (
+		id BIGSERIAL PRIMARY KEY,
+		time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		email TEXT NOT NULL,
+		action TEXT NOT NULL,
+		target TEXT NOT NULL DEFAULT '',
+		detail JSONB NOT NULL DEFAULT '{}'::jsonb
+	)`,
+	`DO $$
+	BEGIN
+		IF EXISTS (
+			SELECT 1 FROM information_schema.columns
+			WHERE table_schema = 'public' AND table_name = 'app_user' AND column_name = 'username'
+		) THEN
+			ALTER TABLE app_user RENAME COLUMN username TO email;
+		END IF;
+		IF EXISTS (
+			SELECT 1 FROM information_schema.columns
+			WHERE table_schema = 'public' AND table_name = 'app_session' AND column_name = 'username'
+		) THEN
+			ALTER TABLE app_session RENAME COLUMN username TO email;
+		END IF;
+		IF EXISTS (
+			SELECT 1 FROM information_schema.columns
+			WHERE table_schema = 'public' AND table_name = 'audit_event' AND column_name = 'username'
+		) THEN
+			ALTER TABLE audit_event RENAME COLUMN username TO email;
+		END IF;
+		ALTER TABLE app_user ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+	END $$`,
 }
 
 // compressionStatements are best-effort (log + continue on failure).
@@ -233,6 +284,10 @@ func (s *Store) tryConnect() error {
 	if err := tmp.migrateEndpointIdentities(ctx); err != nil {
 		pool.Close()
 		return fmt.Errorf("identity migrate: %w", err)
+	}
+	if err := tmp.BootstrapAdmin(ctx); err != nil {
+		pool.Close()
+		return fmt.Errorf("admin bootstrap: %w", err)
 	}
 
 	s.mu.Lock()

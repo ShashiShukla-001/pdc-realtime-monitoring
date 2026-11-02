@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"pdc/config"
 )
 
@@ -56,5 +57,40 @@ func TestReconnectIntervalEnv(t *testing.T) {
 	_ = os.Setenv("POSTGRES_RECONNECT_SEC", "3")
 	if got := reconnectInterval(); got != 3*time.Second {
 		t.Fatalf("3 → %s", got)
+	}
+}
+
+func TestEmailTaken(t *testing.T) {
+	dup := emailTaken(&pgconn.PgError{Code: "23505"}, "ada@example.com")
+	if dup == nil || dup.Error() != "email ada@example.com is already in use" {
+		t.Fatalf("duplicate message = %v", dup)
+	}
+	if !errors.Is(dup, ErrEmailTaken) {
+		t.Fatal("duplicate should match ErrEmailTaken")
+	}
+	if emailTaken(errors.New("other"), "ada@example.com") != nil {
+		t.Fatal("other database errors stay unchanged")
+	}
+	if _, err := normalizeEmail("admin"); err == nil {
+		t.Fatal("a plain name is not an email")
+	}
+	got, err := normalizeEmail("Ada@Example.com")
+	if err != nil || got != "ada@example.com" {
+		t.Fatalf("normalize email = %q %v", got, err)
+	}
+	login, err := normalizeLogin("  Admin  ")
+	if err != nil || login != "admin" {
+		t.Fatalf("login id = %q %v", login, err)
+	}
+	if _, err := normalizeLogin(""); err == nil {
+		t.Fatal("empty login should fail")
+	}
+	for _, role := range []string{"viewer", "operator", "admin", "superadmin"} {
+		if !validRole(role) {
+			t.Fatalf("role %s should be accepted", role)
+		}
+	}
+	if validRole("owner") {
+		t.Fatal("unknown role should be rejected")
 	}
 }

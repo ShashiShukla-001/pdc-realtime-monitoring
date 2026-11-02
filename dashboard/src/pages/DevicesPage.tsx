@@ -32,6 +32,9 @@ export function DevicesPage() {
     editingPMUName,
     openEditPMU,
     setNotice,
+    canEdit,
+    canConnect,
+    canSeeAddress,
   } = useDashboardContext()
 
   const summary = useMemo(() => computeDeviceSummary(enabledPmus), [enabledPmus])
@@ -51,6 +54,7 @@ export function DevicesPage() {
           </p>
         </div>
         <div className="page-actions devices-page-actions">
+          {canEdit && (
           <BufferCapacityControl
             liveCapacity={liveCapacity}
             onApplied={(capacity) =>
@@ -58,9 +62,12 @@ export function DevicesPage() {
             }
             onError={(message) => setNotice({ type: 'error', message })}
           />
+          )}
+          {canEdit && (
           <button type="button" className="btn primary" onClick={() => setShowAddPMU(true)}>
             + Register New PMU
           </button>
+          )}
         </div>
       </div>
 
@@ -86,6 +93,9 @@ export function DevicesPage() {
         onBulkConnect={handleBulkConnectPMU}
         deletingPMUName={deletingPMUName}
         connectingPMUName={connectingPMUName}
+        canEdit={canEdit}
+        canConnect={canConnect}
+        showAddress={canSeeAddress}
       />
 
     </>

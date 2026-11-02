@@ -10,7 +10,9 @@ import (
 	"net/http"
 	"time"
 
+	"pdc/auth"
 	"pdc/internal/instance"
+	"pdc/store"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -94,7 +96,7 @@ func ObserveLatency(d time.Duration) {
 	processingLatency.Observe(d.Seconds())
 }
 
-func StartServer(ctx context.Context, addr string, registerExtra ...func(*http.ServeMux)) error {
+func StartServer(ctx context.Context, addr string, db *store.Store, registerExtra ...func(*http.ServeMux)) error {
 	ln, err := instance.ListenOrExit("metrics", instance.NormalizeAddr(addr))
 	if err != nil {
 		return err
@@ -110,7 +112,7 @@ func StartServer(ctx context.Context, addr string, registerExtra ...func(*http.S
 	}
 	StartLatencyReporter(ctx.Done())
 
-	srv := &http.Server{Handler: mux}
+	srv := &http.Server{Handler: auth.WrapLive(db, mux)}
 
 	go func() {
 		<-ctx.Done()

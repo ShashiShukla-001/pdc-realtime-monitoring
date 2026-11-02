@@ -29,6 +29,7 @@ import (
 
 	"pdc/aligner"
 	"pdc/api"
+	"pdc/auth"
 	"pdc/config"
 	"pdc/internal/envfile"
 	"pdc/internal/instance"
@@ -47,6 +48,7 @@ type pipeline struct {
 	publisher           *aligner.Publisher // tick-grid align emit
 	dropQualityRejected bool
 	history             *history.Recorder
+	accounts            *store.Store
 	timeLocMu           sync.RWMutex
 	timeLoc             map[string]*time.Location // per-PMU SOC interpretation
 	traceMu             sync.Mutex
@@ -322,9 +324,7 @@ func (p *pipeline) handleBufferCapacity(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "aligner buffers unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, PUT, POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Content-Type", "application/json")
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusOK)
 		return
@@ -352,6 +352,9 @@ func (p *pipeline) handleBufferCapacity(w http.ResponseWriter, r *http.Request) 
 		// Bounds live only in aligner.Min/MaxCapacity (buffer.go); SetCapacity clamps.
 		applied := p.buffers.SetCapacity(body.Capacity)
 		monitoring.SetAlignerBufferCapacity(applied)
+		if u, ok := auth.Current(r); ok && p.accounts != nil {
+			p.accounts.Audit(r.Context(), u.Email, "set_buffer", "", strconv.Itoa(applied))
+		}
 		log.Printf("aligner: buffer capacity set to %d (requested %d)", applied, body.Capacity)
 		write(applied)
 	default:
@@ -457,6 +460,7 @@ func main() {
 	defer release()
 
 	pl := newPipeline()
+	pl.accounts = dbStore
 
 	var histRec *history.Recorder
 	histSink, err := output.NewSinkFromEnv(ctx)
@@ -472,7 +476,7 @@ func main() {
 		log.Printf("history: disabled (set ENABLE_HISTORY=true in .env to turn on)")
 	}
 
-	if err := monitoring.StartServer(ctx, *metricsAddr,
+	if err := monitoring.StartServer(ctx, *metricsAddr, dbStore,
 		output.RegisterFrameCaptureHandler,
 		pl.registerAlignerHandlers,
 	); err != nil {

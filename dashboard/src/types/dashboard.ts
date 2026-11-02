@@ -4,8 +4,16 @@ export type TabId =
   | 'dataframes'
   | 'connectivity'
   | 'analytics'
+  | 'accounts'
   | 'help'
   | 'docs'
+
+export type Role = 'viewer' | 'operator' | 'admin' | 'superadmin'
+
+export type SessionUser = {
+  email: string
+  role: Role
+}
 
 export type TrendPoint = {
   ts: number

@@ -1,4 +1,5 @@
 import type { TabId } from '../types/dashboard'
+import { AccountsPage } from './AccountsPage'
 import { AnalyticsPage } from './AnalyticsPage'
 import { ConnectivityPage } from './ConnectivityPage'
 import { DataFramesPage } from './DataFramesPage'
@@ -13,6 +14,7 @@ const pageComponents: Record<TabId, () => React.ReactNode> = {
   dataframes: DataFramesPage,
   connectivity: ConnectivityPage,
   analytics: AnalyticsPage,
+  accounts: AccountsPage,
   help: HelpPage,
   docs: DocsPage,
 }

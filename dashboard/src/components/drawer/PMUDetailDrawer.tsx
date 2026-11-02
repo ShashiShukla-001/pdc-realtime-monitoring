@@ -4,7 +4,7 @@ import { ageText, round } from '../../utils/format'
 import { displayFps, displayName } from '../../utils/pmu'
 
 export function PMUDetailDrawer() {
-  const { drawerPMU, setDrawerPMUName, openEditPMU } = useDashboardContext()
+  const { drawerPMU, setDrawerPMUName, openEditPMU, canEdit, canSeeAddress } = useDashboardContext()
 
   if (!drawerPMU) return null
 
@@ -18,13 +18,13 @@ export function PMUDetailDrawer() {
           </button>
         </div>
         <div className="drawer-body-react">
-          <p><strong>Endpoint:</strong> <code>{drawerPMU.name}</code></p>
+          {canSeeAddress && <p><strong>Endpoint:</strong> <code>{drawerPMU.name}</code></p>}
           <p><strong>Station:</strong> {drawerPMU.cfg?.station || drawerPMU.meta.substation || '—'}</p>
           <p><strong>Region:</strong> {drawerPMU.meta.region}</p>
           <p><strong>Voltage:</strong> {drawerPMU.meta.voltage}</p>
           <p><strong>Vendor:</strong> {drawerPMU.meta.vendor}</p>
-          <p><strong>Primary IP:</strong> {drawerPMU.meta.primaryIp}</p>
-          <p><strong>Redundant IP:</strong> {drawerPMU.meta.redundantIp}</p>
+          {canSeeAddress && <p><strong>Primary IP:</strong> {drawerPMU.meta.primaryIp}</p>}
+          {canSeeAddress && <p><strong>Redundant IP:</strong> {drawerPMU.meta.redundantIp}</p>}
           <p><strong>Frames:</strong> {drawerPMU.totalFrames}</p>
           <p><strong>Approx FPS:</strong> {Math.round(displayFps(drawerPMU, drawerPMU.meta.targetFps))}</p>
           <p><strong>Last event:</strong> {ageText(drawerPMU.lastEventTime)}</p>
@@ -42,6 +42,7 @@ export function PMUDetailDrawer() {
             </div>
           )}
           {drawerPMU.lastError && <p><strong>Last error:</strong> {drawerPMU.lastError}</p>}
+          {canEdit && (
           <button
             type="button"
             className="btn primary drawer-edit-btn"
@@ -49,6 +50,7 @@ export function PMUDetailDrawer() {
           >
             <Pencil size={14} /> Edit device
           </button>
+          )}
         </div>
       </aside>
     </div>

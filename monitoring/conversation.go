@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"pdc/auth"
 	"pdc/parser"
 )
 
@@ -817,18 +818,18 @@ func handleConversationPage(w http.ResponseWriter, _ *http.Request) {
 	}, "\n")+"\n")
 }
 
-func handleConversationRecent(w http.ResponseWriter, _ *http.Request) {
+func handleConversationRecent(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	enc := json.NewEncoder(w)
-	_ = enc.Encode(snapshotEvents())
+	events := snapshotEvents()
+	_ = json.NewEncoder(w).Encode(events)
 }
 
 func handleConversationState(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	// ?aligned=0 — status poll while the chart SSE is connected (skip the tick window).
 	includeAligned := r.URL.Query().Get("aligned") != "0"
-	enc := json.NewEncoder(w)
-	_ = enc.Encode(snapshotDashboard(includeAligned))
+	snap := snapshotDashboard(includeAligned)
+	_ = json.NewEncoder(w).Encode(snap)
 }
 
 func handleConversationLatency(w http.ResponseWriter, _ *http.Request) {
@@ -858,12 +859,17 @@ func handleConversationEvents(w http.ResponseWriter, r *http.Request) {
 
 	keepAlive := time.NewTicker(15 * time.Second)
 	defer keepAlive.Stop()
+	pings := 0
 
 	for {
 		select {
 		case <-r.Context().Done():
 			return
 		case <-keepAlive.C:
+			pings++
+			if pings%4 == 0 && !auth.Alive(r) {
+				return
+			}
 			_, _ = w.Write([]byte(": ping\n\n"))
 			flusher.Flush()
 		case e := <-ch:
@@ -903,12 +909,17 @@ func handleConversationAligned(w http.ResponseWriter, r *http.Request) {
 
 	keepAlive := time.NewTicker(15 * time.Second)
 	defer keepAlive.Stop()
+	pings := 0
 
 	for {
 		select {
 		case <-r.Context().Done():
 			return
 		case <-keepAlive.C:
+			pings++
+			if pings%4 == 0 && !auth.Alive(r) {
+				return
+			}
 			_, _ = w.Write([]byte(": ping\n\n"))
 			flusher.Flush()
 		case ev, ok := <-ch:

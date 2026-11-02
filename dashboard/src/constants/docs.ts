@@ -54,7 +54,7 @@ export const PAGE_DOCS: PageDoc[] = [
         items: [
           'Absolute — Hz with FNOM reference band from CFG-2',
           'Δf — frequency − FNOM',
-          'About the last 120 trend points per PMU',
+          'Aligned ticks from the last second, redrawn once a second',
         ],
       },
       {
@@ -149,7 +149,7 @@ export const PAGE_DOCS: PageDoc[] = [
       {
         heading: 'Frequency chart',
         items: [
-          'Selected PMU frequency trend with FNOM line',
+          'Selected PMU frequency from aligned ticks, redrawn once a second, with an FNOM line',
           'ROCOF plot is on Overview; here ROCOF appears only in the live line',
         ],
       },
@@ -223,13 +223,13 @@ export const PAGE_DOCS: PageDoc[] = [
         heading: 'Voltage / current magnitude',
         items: [
           'Line charts for VA–VC and IA–IC magnitudes',
-          'Last 120 samples from the same trend buffer as frequency',
+          'Aligned ticks from the last second, redrawn once a second, same window as frequency',
         ],
       },
       {
         heading: 'Phasor diagram and angle Δ',
         items: [
-          'Polar diagram of V and I (scaled separately) with short legend',
+          'Voltage and current diagrams refresh once a second and show only the newest aligned slot',
           'Inter-PMU VA angle Δ chart — empty until a second stream is online',
         ],
       },

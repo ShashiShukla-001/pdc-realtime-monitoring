@@ -34,6 +34,9 @@ type Props = {
   onBulkConnect: (names: string[]) => void | Promise<void>
   deletingPMUName: string
   connectingPMUName: string
+  canEdit?: boolean
+  canConnect?: boolean
+  showAddress?: boolean
 }
 
 export function DeviceInventoryTable({
@@ -56,6 +59,9 @@ export function DeviceInventoryTable({
   onBulkConnect,
   deletingPMUName,
   connectingPMUName,
+  canEdit = true,
+  canConnect = true,
+  showAddress = true,
 }: Props) {
   const showDisconnected = inventoryTab === 'disconnected'
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
@@ -183,7 +189,7 @@ export function DeviceInventoryTable({
         )}
       </div>
 
-      {selectedNames.length > 0 && (
+      {canConnect && selectedNames.length > 0 && (
         <div className="device-bulk-bar" role="region" aria-label="Bulk device actions">
           <span className="device-bulk-count">
             {selectedNames.length} selected
@@ -223,6 +229,7 @@ export function DeviceInventoryTable({
           <thead>
             <tr>
               <th className="device-select-col">
+                {canConnect && (
                 <input
                   type="checkbox"
                   checked={allVisibleSelected}
@@ -233,11 +240,12 @@ export function DeviceInventoryTable({
                   onChange={toggleAllVisible}
                   aria-label="Select all visible devices"
                 />
+                )}
               </th>
               <th>Station</th>
-              <th>Endpoint</th>
+              {showAddress && <th>Endpoint</th>}
               <th>Region</th>
-              <th>IP Address</th>
+              {showAddress && <th>IP Address</th>}
               <th>FPS</th>
               <th>Status</th>
               <th>Data Avail.</th>
@@ -248,7 +256,7 @@ export function DeviceInventoryTable({
           <tbody>
             {filteredDevices.length === 0 ? (
               <tr>
-                <td colSpan={10} className="device-empty">
+                <td colSpan={8 + (showAddress ? 2 : 0)} className="device-empty">
                   {showDisconnected
                     ? 'No disconnected PMUs. Disconnect an enabled stream to park it here.'
                     : 'No enabled PMUs in this filter. Check Disconnected or register a new device.'}
@@ -273,6 +281,7 @@ export function DeviceInventoryTable({
                     onClick={() => onRowClick(pmu.name)}
                   >
                     <td className="device-select-col" onClick={(e) => e.stopPropagation()}>
+                      {canConnect && (
                       <input
                         type="checkbox"
                         checked={isSelected}
@@ -280,15 +289,20 @@ export function DeviceInventoryTable({
                         onChange={() => toggleOne(pmu.name)}
                         aria-label={`Select ${displayName(pmu)}`}
                       />
+                      )}
                     </td>
                     <td>
                       <strong className="device-id">{displayName(pmu)}</strong>
                     </td>
+                    {showAddress && (
                     <td>
                       <code className="mono-ip">{pmu.name}</code>
                     </td>
+                    )}
                     <td>{pmu.meta.region}</td>
+                    {showAddress && (
                     <td><code className="mono-ip">{pmu.meta.primaryIp}</code></td>
+                    )}
                     <td>
                       {showDisconnected ? (
                         <span className="device-muted">—</span>
@@ -305,7 +319,9 @@ export function DeviceInventoryTable({
                     <td>{!showDisconnected && pmu.connected ? `${round(availabilityOf(pmu, pmu.meta.targetFps), 1)}%` : '—'}</td>
                     <td>{!showDisconnected && pmu.connected ? `${round(latencyOf(pmu), 0)} ms` : '—'}</td>
                     <td>
+                      {(canEdit || canConnect) && (
                       <div className="device-row-actions">
+                        {canEdit && (
                         <button
                           type="button"
                           className="btn ghost device-edit-btn"
@@ -316,7 +332,8 @@ export function DeviceInventoryTable({
                         >
                           Edit
                         </button>
-                        {showDisconnected ? (
+                        )}
+                        {canConnect && (showDisconnected ? (
                           <button
                             type="button"
                             className="btn primary device-connect"
@@ -334,8 +351,9 @@ export function DeviceInventoryTable({
                           >
                             {deletingPMUName === pmu.name || bulkBusy ? 'Disconnecting…' : 'Disconnect'}
                           </button>
-                        )}
+                        ))}
                       </div>
+                      )}
                     </td>
                   </tr>
                 )
