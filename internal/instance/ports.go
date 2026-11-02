@@ -25,3 +25,4 @@ func NormalizeAddr(addr string) string {
 	}
 	return addr
 }
+

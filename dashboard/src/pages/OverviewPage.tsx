@@ -13,7 +13,7 @@ import { useDashboardContext } from '../context/DashboardContext'
 import { useAlignedBatchesEachSecond } from '../hooks/useAlignedBatches'
 import 'leaflet/dist/leaflet.css'
 import { MapContainer, TileLayer, Marker, Popup, Tooltip as LeafletTooltip, useMap } from 'react-leaflet'
-import { chartLabel, displayFps, packetLossOf, pmuKey } from '../utils/pmu'
+import { chartLabel, displayFps, displayName, packetLossOf, pmuKey } from '../utils/pmu'
 import { rowsFromAlignedBatches } from '../utils/alignedChart'
 import { ExternalChartLegend, useSeriesVisibility } from '../utils/chartLegend'
 import { round } from '../utils/format'
@@ -374,9 +374,9 @@ export function OverviewPage() {
                     position={[pmu.meta.lat, pmu.meta.lon]}
                     eventHandlers={{ click: () => setDrawerPMUName(pmu.name) }}
                   >
-                    <LeafletTooltip direction="top">{pmu.name}</LeafletTooltip>
+                    <LeafletTooltip direction="top">{displayName(pmu)}</LeafletTooltip>
                     <Popup>
-                      <strong>{pmu.name}</strong>
+                      <strong>{displayName(pmu)}</strong>
                       <br />
                       Region: {pmu.meta.region}
                       <br />

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"pdc/auth"
 	"pdc/config"
 	"pdc/internal/instance"
 	"pdc/manager"
@@ -30,7 +31,15 @@ func writeStoreErr(w http.ResponseWriter, err error) {
 // corsMiddleware adds basic CORS headers.
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			origin = "http://localhost:5173"
+		}
+		if originAllowed(origin) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 
@@ -58,6 +67,14 @@ func StartServer(ctx context.Context, addr string, db *store.Store, m *manager.P
 	}
 
 	mux := http.NewServeMux()
+
+	mux.HandleFunc("/api/login", auth.Login(db))
+	mux.HandleFunc("/api/logout", auth.Logout(db))
+	mux.HandleFunc("/api/me/password", auth.ChangePassword(db))
+	mux.HandleFunc("/api/me", auth.Me(db))
+	mux.HandleFunc("/api/audit", auth.AuditList(db))
+	mux.HandleFunc("/api/accounts", auth.Accounts(db))
+	mux.HandleFunc("/api/accounts/", auth.AccountOne(db))
 
 	mux.HandleFunc("/api/pmus", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "GET" {
@@ -104,6 +121,13 @@ func StartServer(ctx context.Context, addr string, db *store.Store, m *manager.P
 			if err := db.SavePMU(r.Context(), cfg); err != nil {
 				writeStoreErr(w, err)
 				return
+			}
+			if u, ok := auth.Current(r); ok {
+				action := "add_device"
+				if replace != "" && replace != cfg.Name {
+					action = "edit_device"
+				}
+				db.Audit(r.Context(), u.Email, action, cfg.Name, "")
 			}
 
 			// Stop the old receiver and wait for TCP teardown before reconnecting.
@@ -158,6 +182,9 @@ func StartServer(ctx context.Context, addr string, db *store.Store, m *manager.P
 				return
 			}
 			_ = m.StopPMU(name) // ok if already stopped
+			if u, ok := auth.Current(r); ok {
+				db.Audit(r.Context(), u.Email, "disconnect", name, "")
+			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{"name": name, "active": false})
 
@@ -178,6 +205,9 @@ func StartServer(ctx context.Context, addr string, db *store.Store, m *manager.P
 					return
 				}
 			}
+			if u, ok := auth.Current(r); ok {
+				db.Audit(r.Context(), u.Email, "connect", name, "")
+			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(cfg)
 
@@ -187,6 +217,9 @@ func StartServer(ctx context.Context, addr string, db *store.Store, m *manager.P
 				return
 			}
 			_ = m.StopPMU(name) // Ignore error if not running
+			if u, ok := auth.Current(r); ok {
+				db.Audit(r.Context(), u.Email, "delete_device", name, "")
+			}
 			w.WriteHeader(http.StatusNoContent)
 
 		default:
@@ -194,7 +227,7 @@ func StartServer(ctx context.Context, addr string, db *store.Store, m *manager.P
 		}
 	})
 
-	srv := &http.Server{Handler: corsMiddleware(mux)}
+	srv := &http.Server{Handler: corsMiddleware(auth.WrapAPI(db, mux))}
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -207,6 +240,15 @@ func StartServer(ctx context.Context, addr string, db *store.Store, m *manager.P
 		}
 	}()
 	return nil
+}
+
+func originAllowed(origin string) bool {
+	switch origin {
+	case "http://localhost:5173", "http://127.0.0.1:5173":
+		return true
+	default:
+		return false
+	}
 }
 
 func validateEndpointUnique(ctx context.Context, db *store.Store, incoming config.PMUConfig, replace string) error {

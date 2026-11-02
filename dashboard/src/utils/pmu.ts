@@ -51,7 +51,7 @@ export function metaForDB(name: string, config?: PMUConfig): PMUMeta {
     state: '-',
     voltage: '-',
     vendor: '-',
-    primaryIp: config?.ip || '0.0.0.0',
+    primaryIp: config?.ip || '',
     redundantIp: '-',
     // 0 = use CFG-2 DATA_RATE from live state (30/60/120), not a hardcoded 30.
     targetFps: config?.data_rate && config.data_rate > 0 ? config.data_rate : 0,

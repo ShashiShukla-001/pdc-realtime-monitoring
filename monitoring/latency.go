@@ -63,6 +63,7 @@ type stageWindow struct {
 	maxMs   float64
 }
 
+
 // StageLatency is one pipeline hop as shown on the dashboard.
 type StageLatency struct {
 	ID     string  `json:"id"`

@@ -22,6 +22,10 @@ const PAGE_COPY: Record<string, { title: string; subtitle: string }> = {
     title: 'Connectivity & pipeline latency',
     subtitle: 'Frame gap, parse, align wait, dashboard record, and end-to-end timing.',
   },
+  accounts: {
+    title: 'Accounts',
+    subtitle: 'Add accounts, reset a password, and read the audit list.',
+  },
   help: {
     title: 'Help & Support',
     subtitle: 'Practical guidance for operating and troubleshooting the PDC.',

@@ -4,6 +4,7 @@ import { useClock } from '../../hooks/useClock'
 import { useDashboardContext } from '../../context/DashboardContext'
 import { round } from '../../utils/format'
 import { Logo } from './Logo'
+import { PasswordButton } from './PasswordButton'
 
 interface HeaderProps {
   onMenuToggle?: () => void
@@ -13,7 +14,7 @@ interface HeaderProps {
 export function Header({ onMenuToggle, sidebarOpen = false }: HeaderProps) {
   const headerRef = useRef<HTMLElement>(null)
   const clockLabel = useClock()
-  const { frameRate, systemTone, systemMessage, isPaused, setIsPaused, streamOnline, enabledPmus, dashboard, uiTiming } = useDashboardContext()
+  const { frameRate, systemTone, systemMessage, isPaused, setIsPaused, streamOnline, enabledPmus, dashboard, uiTiming, logout, session } = useDashboardContext()
   const e2e = dashboard.latency?.stages.find((s) => s.id === 'e2e_pmu_to_dashboard')
     ?? dashboard.latency?.stages.find((s) => s.id === 'e2e_recv_to_dashboard')
   const clockSkew = dashboard.latency?.stages.find((s) => s.id === 'clock_skew_pmu')
@@ -101,6 +102,15 @@ export function Header({ onMenuToggle, sidebarOpen = false }: HeaderProps) {
           <span className="mono">{clockLabel}</span>
           <span className="tz">IST</span>
         </div>
+        {session && <span className="header-pill">{session.email}</span>}
+        {session && <PasswordButton />}
+        <button
+          type="button"
+          className="btn header-action"
+          onClick={() => void logout()}
+        >
+          Log out
+        </button>
         <button
           type="button"
           className="btn header-action"

@@ -6,10 +6,11 @@ import { PageHeader } from './components/layout/PageHeader'
 import { Sidebar } from './components/layout/Sidebar'
 import { DashboardProvider, useDashboardContext } from './context/DashboardContext'
 import { PageRouter } from './pages'
+import { LoginPage } from './pages/LoginPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 
 function DashboardShell() {
-  const { activeTab, notice, setNotice, loadError } = useDashboardContext()
+  const { activeTab, notice, setNotice, loadError, authReady, session } = useDashboardContext()
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   useEffect(() => {
@@ -19,6 +20,7 @@ function DashboardShell() {
       dataframes: 'Data Frames',
       connectivity: 'Connectivity',
       analytics: 'Analytics',
+      accounts: 'Accounts',
       help: 'Help',
       docs: 'Documentation',
     }
@@ -38,6 +40,13 @@ function DashboardShell() {
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [])
+
+  if (!authReady) {
+    return <div className="login-screen"><p>Checking login…</p></div>
+  }
+  if (!session) {
+    return <LoginPage />
+  }
 
   return (
     <div className="console-root">

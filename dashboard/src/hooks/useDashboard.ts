@@ -23,6 +23,7 @@ import type {
   NewPMUForm,
   PMUConfig,
   PMUWithMeta,
+  SessionUser,
   TabId,
   UiTiming,
 } from '../types/dashboard'
@@ -72,6 +73,44 @@ export function useDashboard() {
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [loadError, setLoadError] = useState('')
   const [uiTiming, setUiTiming] = useState<UiTiming>({ fetchMs: 0, jsonMs: 0, totalMs: 0 })
+  const [authReady, setAuthReady] = useState(false)
+  const [session, setSession] = useState<SessionUser | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/me', { credentials: 'include' })
+      .then(async (res) => (res.ok ? ((await res.json()) as SessionUser) : null))
+      .then((data) => {
+        if (!cancelled) {
+          setSession(data)
+          setAuthReady(true)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setAuthReady(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const login = useCallback(async (email: string, password: string) => {
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    })
+    if (!res.ok) {
+      throw new Error('The email or password is wrong.')
+    }
+    setSession((await res.json()) as SessionUser)
+  }, [])
+
+  const logout = useCallback(async () => {
+    await fetch('/api/logout', { method: 'POST', credentials: 'include' })
+    setSession(null)
+  }, [])
 
   const openEditPMU = useCallback((name: string) => {
     const cfg = dbConfigs.find((item) => item.name === name)
@@ -351,7 +390,7 @@ export function useDashboard() {
   }, [activeTab, closeEditPMU, editingPMUName])
 
   useEffect(() => {
-    if (isPaused) return
+    if (!session || isPaused) return
 
     const refreshState = async () => {
       const t0 = performance.now()
@@ -404,10 +443,10 @@ export function useDashboard() {
       window.clearInterval(stateTimer)
       window.clearInterval(configTimer)
     }
-  }, [isPaused])
+  }, [isPaused, session])
 
   useEffect(() => {
-    if (isPaused) {
+    if (!session || isPaused) {
       setStreamOnline(false)
       return
     }
@@ -424,12 +463,12 @@ export function useDashboard() {
       }
     }
     return () => es.close()
-  }, [isPaused])
+  }, [isPaused, session])
 
   // Aligned chart ticks. Each sample is stored immediately and the charts
   // draw it on the next animation frame. This does not rebuild the page state.
   useEffect(() => {
-    if (isPaused) {
+    if (!session || isPaused) {
       alignedLiveRef.current = false
       return
     }
@@ -459,7 +498,7 @@ export function useDashboard() {
       alignedLiveRef.current = false
       es.close()
     }
-  }, [isPaused])
+  }, [isPaused, session])
 
   const pmus = useMemo<PMUWithMeta[]>(() => {
     return dbConfigs.map((cfg) => {
@@ -658,23 +697,44 @@ export function useDashboard() {
     return `${item.title} ${item.content}`.toLowerCase().includes(helpQuery.toLowerCase())
   })
 
-  const navItems = useMemo<NavItem[]>(() => [
-    { id: 'overview', label: 'Overview', section: 'Monitoring' },
-    { id: 'devices', label: 'Device Inventory', section: 'Monitoring', badge: `${dbConfigs.length}` },
-    { id: 'dataframes', label: 'Data Frames', section: 'Monitoring' },
-    {
-      id: 'connectivity',
-      label: 'Connectivity',
-      section: 'Monitoring',
-      badge: `${connectivityRows.filter((row) => row.tone !== 'ok').length}`,
-      bad: connectivityRows.some((row) => row.tone !== 'ok'),
-    },
-    { id: 'analytics', label: 'Analytics', section: 'Monitoring' },
-    { id: 'help', label: 'Help & Support', section: 'Resources' },
-    { id: 'docs', label: 'Documentation', section: 'Resources' },
-  ], [dbConfigs.length, connectivityRows])
+  const role = session?.role
+  const isStaff = role === 'admin' || role === 'superadmin'
+  const canSeeAddress = isStaff || role === 'operator'
+  const canConnect = canSeeAddress
+  const canEdit = isStaff
+
+  const navItems = useMemo<NavItem[]>(() => {
+    const items: NavItem[] = [
+      { id: 'overview', label: 'Overview', section: 'Monitoring' },
+      { id: 'devices', label: 'Device Inventory', section: 'Monitoring', badge: `${dbConfigs.length}` },
+      { id: 'dataframes', label: 'Data Frames', section: 'Monitoring' },
+      {
+        id: 'connectivity',
+        label: 'Connectivity',
+        section: 'Monitoring',
+        badge: `${connectivityRows.filter((row) => row.tone !== 'ok').length}`,
+        bad: connectivityRows.some((row) => row.tone !== 'ok'),
+      },
+      { id: 'analytics', label: 'Analytics', section: 'Monitoring' },
+    ]
+    if (role === 'admin' || role === 'superadmin') {
+      items.push({ id: 'accounts', label: 'Accounts', section: 'Resources' })
+    }
+    items.push(
+      { id: 'help', label: 'Help & Support', section: 'Resources' },
+      { id: 'docs', label: 'Documentation', section: 'Resources' },
+    )
+    return items
+  }, [dbConfigs.length, connectivityRows, role])
 
   return {
+    authReady,
+    session,
+    login,
+    logout,
+    canSeeAddress,
+    canConnect,
+    canEdit,
     dashboard,
     pmus,
     enabledPmus,

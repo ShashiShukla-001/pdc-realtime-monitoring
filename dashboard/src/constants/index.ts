@@ -34,7 +34,7 @@ export const HELP_SECTIONS = [
   {
     title: 'Overview',
     content:
-      'Fleet KPIs, frequency and ROCOF charts, map from registration lat/lon, regional health, and live alerts.',
+      'Fleet KPIs, frequency and ROCOF charts that redraw once a second from aligned ticks, map from registration lat/lon, regional health, and live alerts.',
   },
   {
     title: 'Device Inventory',
@@ -44,7 +44,7 @@ export const HELP_SECTIONS = [
   {
     title: 'Data Frames',
     content:
-      'CFG-2 profile, live DATA lines (SOC/FRACSEC/STAT/DIG), VA–IC / analogs / digital bits, and a frequency trend for one PMU.',
+      'CFG-2 profile, live DATA lines (SOC/FRACSEC/STAT/DIG), VA–IC / analogs / digital bits, and a frequency chart for one PMU that redraws once a second from aligned ticks.',
   },
   {
     title: 'Connectivity',
@@ -54,7 +54,7 @@ export const HELP_SECTIONS = [
   {
     title: 'Analytics',
     content:
-      'V/I magnitude trends, separate V and I phasor diagrams, inter-PMU VA angle Δ (≥2 PMUs), and advisories from live DATA.',
+      'V/I magnitude trends and the angle-difference chart redraw once a second from aligned ticks. Voltage and current phasor diagrams refresh once a second and show the newest aligned slot. Inter-PMU angle Δ needs at least two PMUs. Advisories come from live DATA.',
   },
   {
     title: 'Documentation',

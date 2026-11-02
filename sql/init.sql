@@ -107,3 +107,39 @@ SELECT add_compression_policy(
     compress_after => INTERVAL '2 hours',
     if_not_exists => TRUE
 );
+
+-- Dashboard accounts. The PMU read path does not use these tables.
+CREATE TABLE IF NOT EXISTS app_role (
+    name TEXT PRIMARY KEY
+);
+
+INSERT INTO app_role (name) VALUES ('viewer'), ('operator'), ('admin'), ('superadmin')
+ON CONFLICT (name) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS app_user (
+    email         TEXT PRIMARY KEY,
+    password_hash TEXT NOT NULL,
+    role          TEXT NOT NULL REFERENCES app_role(name),
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by    TEXT NOT NULL DEFAULT '',
+    is_active     BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+CREATE TABLE IF NOT EXISTS app_session (
+    id           TEXT PRIMARY KEY,
+    email        TEXT NOT NULL REFERENCES app_user(email) ON DELETE CASCADE,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at   TIMESTAMPTZ NOT NULL,
+    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS app_session_expires_idx ON app_session (expires_at);
+
+CREATE TABLE IF NOT EXISTS audit_event (
+    id     BIGSERIAL PRIMARY KEY,
+    time   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    email  TEXT NOT NULL,
+    action TEXT NOT NULL,
+    target TEXT NOT NULL DEFAULT '',
+    detail JSONB NOT NULL DEFAULT '{}'::jsonb
+);
